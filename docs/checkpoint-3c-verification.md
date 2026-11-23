@@ -86,6 +86,22 @@ The API was invoked against the disposable local PostgreSQL database as the seed
 
 Run IDs: safe `37af918c-1fb3-4812-ae6f-d814be5d1fa7`; unsafe `27f1ee27-765e-4634-ba06-3a8179cdcd48`. The sample shows behavior of the two isolated lab implementations under one matching deterministic schedule; it does not establish production reliability or external-lender behavior.
 
+### Five-scenario observed comparison
+
+The API was then run for every named scenario, with safe and unsafe runs compared at identical scenario/seed/trial settings (**2 trials each**). These are actual experiment records in the same disposable PostgreSQL database, not calculated estimates. Format for outcomes is `attempts / effects / authoritative confirmations / duplicates / recovered / unresolved`.
+
+| Scenario | Seed | Safe outcomes | Unsafe outcomes | Unsafe invariant violations |
+|---|---:|---|---|---|
+| `REQUEST_LOST_BEFORE_LENDER` | 5201 | 4 / 2 / 2 / 0 / 2 / 0 | 4 / 2 / 0 / 0 / 0 / 0 | 2 unsupported confirmations; 2 timeout-to-rejection collapses |
+| `EFFECT_COMMITTED_RESPONSE_LOST` | 5202 | 2 / 2 / 2 / 0 / 2 / 0 | 4 / 4 / 0 / 2 / 0 / 0 | 2 unsupported confirmations; 2 duplicate effects |
+| `DUPLICATE_RESPONSE` | 5203 | 2 / 2 / 2 / 0 / 0 / 0 | 2 / 2 / 0 / 0 / 0 / 0 | 2 unsupported confirmations; both runs observed 2 duplicate response deliveries |
+| `CONFLICTING_RESPONSE` | 5204 | 2 / 2 / 2 / 0 / 2 / 0 | 2 / 2 / 0 / 0 / 0 / 0 | 2 unsupported confirmations; 2 immutable-binding mutations |
+| `RESPONSE_AFTER_DEADLINE` | 5205 | 2 / 2 / 2 / 0 / 2 / 0 | 2 / 2 / 0 / 0 / 0 / 0 | 2 unsupported confirmations; both runs observed 2 late responses |
+
+In every safe run, every invariant violation count was zero; all runs recorded zero unauthorized effects, two workflows marked submitted, and zero unresolved workflows. In unsafe runs, `confirmed_effects` remained zero because none had authoritative lab-ledger confirmation; `workflows_marked_submitted` was two and `unverified_confirmations` was two in each case. Unsafe violations are outcomes of the intentionally unsafe teaching implementation. They are not independent evidence of a defect in the production dispatch worker. These five two-trial samples are finite and do not establish universal reliability.
+
+Run IDs (safe / unsafe): request lost `d92a06e6-d057-4e47-a076-24c6f5b1cc94` / `d4487948-59a4-4db0-9558-81eeade81774`; effect/response lost `ac0262fc-5d40-4f4a-b020-a60c190fff11` / `f84259dd-7be5-4de9-a632-c44a9f36727c`; duplicate response `1e057c57-8ac6-4353-a390-31314ee0fc0b` / `a107aff5-31a6-4489-9552-7b090a3e1a93`; conflicting response `7417d093-ba4c-4535-aae4-c8ec0025c89c` / `fb205333-b279-4efa-b9d4-4d4b28581b58`; late response `5b8186b2-7c50-42ca-82c0-b70f5ccd18f9` / `879c3845-e293-4916-8228-97e4c273496a`.
+
 ## PostgreSQL verification and commands
 
 A new database `lending_lab_3c_final_verify` was created with owner `lending_migrator`. Before migration it had **0 public tables**. PostgreSQL reported **16.16 (Homebrew)**. Tests used distinct migration-owner, runtime, and lab DSNs. The DSNs and credentials are intentionally omitted here.
