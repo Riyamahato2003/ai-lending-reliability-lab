@@ -1,0 +1,141 @@
+# AI Lending Reliability Lab
+
+## Scope and evidence boundary
+
+This is an original portfolio engineering demonstration using synthetic borrower data and simulated lender services. It is not a real lender product, credit decision, preapproval, guaranteed offer, validated underwriting model, production service, regulatory certification, or compliance claim.
+
+Checkpoint 2 supplies the durable backend foundation. Checkpoint 3A approval, write-ahead dispatch, restart reconciliation, and concurrency mechanisms are implemented and verified to the extent recorded in [docs/checkpoint-3a-verification.md](docs/checkpoint-3a-verification.md). Checkpoint 3B consent revocation and privacy handling are implemented and evidence is recorded in [docs/checkpoint-3b-verification.md](docs/checkpoint-3b-verification.md). Checkpoint 3C remains a contract only. Evidence and requirement mapping are maintained in [docs/checkpoint-2-verification.md](docs/checkpoint-2-verification.md). A test count does not establish coverage of untested conditions.
+
+## Architecture
+
+```text
+Browser (later checkpoint) ── JSON + server correlation ID ── FastAPI
+                                                              ├─ signed demo sessions and authorization
+                                                              ├─ deterministic versioned policy engine
+                                                              ├─ workflow state machine and snapshots
+                                                              ├─ 3 simulated lender adapters / allowlists
+                                                              └─ security event and workflow audit writers
+                                                                    │
+PostgreSQL ──────────────────────────────────────────────────────────┤
+  migration owner: lending_migrator (DDL, seeds, trigger/function owner)
+  runtime role: lending_runtime (narrow workflow and append function grants)
+  lab role: lending_lab_operator (lab tables only; no borrower access)
+  application rows | separate simulator ledger | ordered audit | security events
+```
+
+FastAPI/Pydantic define typed service boundaries. PostgreSQL owns durable state. Three synthetic lender adapters have separate deterministic rules, document requirements, outbound fields, rates, and offer formulas. Their persistent simulator ledger is separate from workflow records. It models lender-side idempotency, but shares the PostgreSQL server with the application and therefore does not prove exactly-once effects against an independent service.
+
+### Database roles and audit
+
+The migration owner is used only by the one-shot migration service and test bootstrap. The API connects as `lending_runtime`, which does not own tables or schema objects, cannot run DDL, cannot update/delete audit or snapshot rows, and can append workflow audit/security events only through narrowly granted database functions. `lending_lab_operator` is a distinct database role limited to lab tables and security-event append; it cannot read or alter borrower tables. Database triggers reject update/delete on workflow audit records, security events, evaluation snapshots, and simulator ledger. Per-workflow audit sequence and SHA-256 hash-chain updates run inside an owner-controlled `SECURITY DEFINER` trigger function with a fixed search path. Hash chaining is tamper-evident against ordinary edits, not tamper-proof against a database owner who can rewrite rows/functions. An independently held external checkpoint is outside this demo.
+
+### Identity and session handling
+
+Local seeded credentials issue HMAC-SHA-256 signed bearer sessions containing a subject, role, optional borrower binding, session ID, issue time, and expiry. Session IDs are stored so logout can revoke a token before expiry. Every request validates signature, expiry, role/binding shape, active database session, and consistency with the current server-side user row. The API uses a restricted database service credential independently of the end-user role in the session: database roles describe application capabilities, not borrower identity. Demo password hashes use PBKDF2-HMAC-SHA-256 with 600,000 iterations and a fresh 16-byte random salt per stored password. Seeded identities and profiles are reproducible; salted hash bytes intentionally are not. Authentication throttling is not implemented. Before any non-demo authentication, add a PostgreSQL-backed limit of five failures per normalized account in a rolling 15-minute window followed by a 15-minute cooldown; reset on success, use identical responses for unknown user/bad password/locked account, and store a keyed account identifier rather than passwords or raw IP addresses. Test concurrent increments, expiry, success reset, and username enumeration behavior. These public synthetic credentials are not production authentication.
+
+Borrower identity is derived only from the verified token; owner predicates are included in workflow reads/writes. A borrower cannot invoke operator routes or set a role/borrower in request data. The runtime role is not a table owner. The lab database role has no borrower-table privileges. Logout revokes only the current session ID. The UI should hold bearer tokens in memory and send them in the `Authorization` header; do not place them in URLs or logs. Bearer headers are not ambient browser credentials, reducing CSRF exposure. If a future UI uses cookies, use `Secure`, `HttpOnly`, `SameSite=Strict` and a CSRF token on state-changing requests. Startup defaults to `APP_MODE=production` and rejects sample signing secrets/passwords there; sample values are accepted only with explicit `APP_MODE=local_demo` and loopback/Compose database hosts. Non-demo startup requires a non-sample signing secret of at least 32 bytes. Configure secrets through untracked `.env` or a secret manager; never commit them. A demo session must never be described or reused as production authentication.
+
+### Security event logging
+
+`security_events` is a separate append-only table for activity without a loan-workflow ID: authentication failures, cross-borrower denials, wrong-role/operator denials, and lab administration. Events are committed in their own PostgreSQL transaction and carry a server-generated correlation ID. They record fixed reason/action values and, for authenticated actors, the synthetic username/role; invalid credentials, submitted passwords, tokens, request bodies, and unrelated financial fields are never logged. Security event rows are immutable; application runtime can append via the database function but cannot update/delete them.
+
+### Workflow and state definitions
+
+Implemented workflow states include `draft`, `consented`, `evaluating`, `compared`, `awaiting_approval`, `submitting`, `dispatching`, `submission_unknown`, `submitted`, `ineligible`, `failed`, `cancelled`, and `consent_revoked`. `submitting` means an approval was consumed and the worker is preparing the external request, before any durable external-effect intent. `dispatching` means the immutable intent is committed and a lender effect may exist. `submission_unknown` means a response/effect cannot yet be authoritatively confirmed; it is not a rejection. Durable step statuses include `queued`, `leased`, `done`, `failed`, and `dead_letter`. State changes are server-side allowlisted, version-checked, and row-locked. `submission_unknown` means an effect may have happened without a confirmed response; it is never treated as rejection. `failed` is for a confirmed terminal error, not a timeout. A dead-lettered step is unresolved work requiring review, not a claim that no lender effect occurred.
+
+### A. Write-ahead dispatch contract (Checkpoint 3A)
+
+1. In one PostgreSQL transaction, lock the workflow and approval/step rows; verify workflow version, approval bindings, purpose-specific consent, cancellation state, and offer validity/expiry.
+2. Persist `dispatching`, the fixed lender idempotency key, canonical payload hash, immutable snapshot reference, dispatch attempt, and audit event. Commit this dispatch intent before network I/O.
+3. Send only the adapter's allowlisted canonical payload with the same idempotency key.
+4. In a second transaction, record a confirmed result and transition/audit. If the response is lost or the worker/process is interrupted after step 2, keep the effect uncertain, reconcile with the lender using the same key, and only retry the exact same payload/key when the lender confirms no effect. Never mint a replacement key to resolve uncertainty.
+
+There is no atomic transaction across PostgreSQL and a remote service. `submitting` means explicit borrower approval exists and the server is preparing a submission; it does not imply an external send. `dispatching` means a durable intent and idempotency key have committed and an external request may be in flight or have taken effect. The durable intent narrows the failure window; the lender's own persistent idempotency ledger/reconciliation is the external-effect authority.
+
+### Approval contract (Checkpoint 3A; implemented)
+
+The `approvals` row is server-issued and single-use. It binds an immutable `evaluation_snapshot_id` and snapshot hash; canonical approval payload and keyed HMAC-SHA-256 payload digest/key version; borrower/workflow IDs and workflow version; consent grant ID and exact purpose; policy version; lender ID and lender/offer version; displayed offer values and offer expiry; and approval creation/expiry, consumed timestamp, and invalidation reason. Canonicalization follows the RFC 8785 JSON Canonicalization Scheme for the constrained versioned schema (ASCII strings, safe integers including minor-unit amounts, no floats), UTF-8, and domain-separation prefix `ai-lending-approval-v1\n`; compute the payload digest with a versioned approval HMAC key held outside PostgreSQL in secret management. This avoids leaving a guessable financial payload hash. Dispatch retrieves the bound immutable snapshot and verifies its digest; it never reconstructs an approved payload from mutable profile data.
+
+After displaying the exact bound offer and receiving explicit borrower confirmation, the server creates a random approval ID. Consumption is one atomic PostgreSQL transaction: lock in the specified order, verify all bindings and unused/unexpired status, then compare-and-set `consumed_at` from NULL exactly once and append audit. Check both approval expiry and offer expiry at consumption and again immediately before dispatch. If either expires before dispatch, do not send; invalidate approval and require fresh evaluation/approval. A changed material input, grant/purpose, policy, workflow version/state, lender result, offer version/value, or canonical payload invalidates approval. API callers cannot choose approval IDs or mark approvals consumed. This protocol is implemented in Checkpoint 3A. HMAC key bytes and key version are supplied by deployment environment configuration and are never stored in the database. Rotation that removes an old key version makes its outstanding approvals unverifiable and therefore invalid; it must not silently fall back to another key.
+
+### B. Consent revocation and privacy contract (Checkpoint 3B)
+
+Consent is per borrower and purpose; each grant has a new UUID and keyed HMAC of exact submitted text, plus a foreign key to an immutable `consent_text_versions` row containing versioned demo wording. Store HMAC algorithm/key version with the grant. The key is outside PostgreSQL in deployment secret management; local demo keys remain in ignored environment files. Known consent wording is guessable, so do not retain an unkeyed digest. Rotation retains old HMAC keys only as long as verification/audit needs require, with versioned key access logged; deleting a key is not described as data erasure unless all copies and backups are demonstrably removed. Revocation is a directly accessible borrower API/UI action and does not require an assistant. In one transaction it marks the grant revoked, stops unclaimed queue work, changes every active workflow using that grant to `consent_revoked` unless a dispatch intent is committed, and appends audit events. New work requires a new grant ID and new workflow; a revoked workflow is never resumed under a different grant. An already-in-flight request cannot be recalled: retain its minimal dispatch intent and reconcile the same idempotency key, while preventing later side effects.
+
+Privacy implementation is in 3B. Synthetic financial fields live in a separate deletable `sensitive_borrower_data` table. Keep immutable audit metadata nonsensitive: workflow/grant references, purpose and consent version, timestamps, policy/rule IDs, state/action names, outcome category, and correlation ID. Use keyed HMACs rather than raw values or unkeyed hashes for fields that remain linkable or guessable. Revocation deletes the active sensitive row and deletes or makes inaccessible any evaluation/result payload containing borrower fields under a defined retention policy. Keep minimal audit metadata and static consent-version wording. Backups may retain deleted rows until expiry/rotation; deletion is not retroactive in snapshots, WAL archives, developer exports, or host backups. Do not claim irreversible cryptographic erasure: a per-borrower key lifecycle and verified backup purge do not exist. An assistant can only open direct revocation; the borrower must confirm the explicit server-authorized action.
+
+### C. Interrupted workflow recovery contract (Checkpoint 3A)
+
+- **`evaluating`:** evaluation is deterministic and uses an immutable input snapshot/policy version. Resume only missing idempotent evaluation steps from persisted results; do not silently switch the snapshot/version. If the source snapshot cannot be recovered or policy version is unavailable, close as a recorded terminal failure requiring a new workflow.
+- **`dispatching`:** inspect the dispatch intent and reconcile the simulator ledger using its stored key and payload hash. Matching result completes the workflow; no row permits retry with the same key/payload; conflicting hash remains unresolved for operator review.
+- **`submission_unknown`:** same reconciliation sequence as dispatching. Timeout remains unknown until authoritative reconciliation.
+- **Terminal versus unresolved:** deterministic invalid input and explicit non-retryable outcomes with confirmed no effect may become `failed`; retry exhaustion with confirmed no effect may be terminal/dead-lettered. Uncertain effect or conflicting idempotency payload remains unresolved and visible; it is never rewritten as rejection.
+- **Operator conflict handling:** operator inspects immutable intent and simulator ledger, records a separate resolution event, and can close the case as reconciled or leave it blocked. Operators cannot edit ledger records, alter the original payload/key, or authorize a fresh key to bypass conflict.
+
+### D. Durable queue contract
+
+The PostgreSQL-backed durable step queue uses a short claim transaction, `FOR UPDATE SKIP LOCKED`, random lease tokens, and lease expiry. The worker claims and commits a queue lease before it enters the business lock order; dispatch processing then locks consent → workflow → approval → step. This avoids holding a queue row while waiting for borrower/workflow locks. Defaults: maximum five attempts per step (database limit 1–20), a 30-second lease (configurable 1–300 seconds), retry delay 1, 2, 4, 8… seconds capped at 300 seconds, with no jitter in repeatable demo schedules. Lease duration must exceed provider deadline plus response/commit margin. A worker must not start a request with a stale lease. If the lease expires while a request is in flight, the send may still take effect; a replacement worker reconciles by the same lender idempotency key before retry. Exhausted queued/expired work moves to `dead_letter` with timestamp and retains minimal intent/key for review. Completion/retry requires the current lease token; stale workers cannot ack or reschedule a newer lease. The claim, lease validation, worker processing, recovery scan, and operator conflict review are implemented and exercised with real PostgreSQL in Checkpoint 3A.
+
+The business-operation lock order for 3A and implemented affected-workflow 3B operations is: (1) consent grant row, (2) all affected workflow rows sorted by UUID, (3) approval rows, (4) queue/step rows, then append audit/security events. A one-workflow operation still locks its consent before its workflow. No path takes workflow then consent. Retry only short rolled-back database transactions on PostgreSQL deadlock `40P01` or serialization `40001`, at most three times with bounded exponential delay; never retry across external I/O. The dispatch intent transaction commits before send. Cancellation is allowed before intent creation; if dispatch intent has committed, cancellation cannot promise recall and the workflow remains reconciliation-only. Consent revocation acquires consent before affected workflows and follows this order. Restart recovery resumes only idempotent evaluating work and reconciles all expired `dispatching`/`submission_unknown` intents before retry. An expired worker is fenced from acknowledgement by lease token and expiry checks; if its request was already sent, the lender ledger’s stable key prevents an additional simulated effect. Lease duration is 30s, greater than the 10s provider deadline plus a 5s persistence margin; no heartbeat is needed for the bounded simulator call. A conflicting lender key/payload hash remains unresolved for operator-recorded resolution; do not edit original intent or mint a replacement key.
+
+### E. Fault injection schedule (later Reliability Lab)
+
+The operator-only deterministic harness will include request lost before reaching lender, lender commits but response lost, duplicate response, conflicting response/payload, and response arriving after deadline. Repeatable schedules use a recorded seed and explicit injected step. Concurrency interleavings remain nondeterministic and are reported separately. Fault settings and run data remain isolated from borrower workflows. The Checkpoint 2 operator route is scaffolding; fault injection is not enabled.
+
+### F. Financial calculations and comparison
+
+All money is integer INR paise (100 paise per rupee). Nominal annual rates are integer basis points (10,000 bps = 100%). Decimal operations use explicit precision 50 with `ROUND_HALF_UP`; monthly rate is `annual_rate_bps / 120000`. The scheduled annuity payment and each period's interest on current paise balance are rounded half-up to one paise. Principal paid is payment minus rounded interest. The final payment is remaining balance plus period interest, absorbing all residual so payoff is exactly zero. Zero-rate loans use principal divided by term, rounded half-up, with the same residual rule. Independent golden vectors supplement Hypothesis schedule properties. Comparisons say **“sorted by estimated total repayment, then lender ID”**; there is no “best loan”, preapproval, guaranteed offer, or validated eligibility language. All amounts and offers remain illustrative. Property tests check accounting, rounded interest, payoff, bounds, and final residual, not monotonic total for every one-paise input change.
+
+### G. AI boundary
+
+Gemini is optional and not integrated in this checkpoint. CI never uses live credentials. Later tests use a deterministic mock for unsafe tool calls/injection. The model may propose typed read-only or draft actions only. It cannot grant/revoke consent, approve, submit, mutate policy, or bypass role checks. Assistant-authored revocation text only opens a human-confirmed direct revocation flow.
+
+### H. Testability and time
+
+An injectable `Clock` (`SystemClock` and `FrozenClock`) supplies expiry/lease times. Database transactions remain real PostgreSQL; tests inject time values into those operations rather than mocking locks/constraints. Deadline, consent race, and interrupted-dispatch tests belong to Checkpoint 3 and must use the fake clock without pretending a remote effect occurred.
+
+## Data model
+
+- `borrower_profiles`: synthetic identity records only; synthetic financial inputs are held in the deletable sensitive table.
+- `demo_users` / `demo_sessions`: seeded PBKDF2 credential digests and revocable expiring role-bound sessions.
+- `consent_text_versions`: immutable purpose-specific consent wording and version, referenced by each grant.
+- `consent_grants`: borrower, purpose, versioned consent text reference, keyed consent-text HMAC and key version, grant/revocation times.
+- `workflows`: owner, state/version, policy version, audit sequence/hash head.
+- `evaluation_snapshots`: immutable keyed input digest/policy version; sensitive input body is in separately deletable `sensitive_evaluation_snapshot_data`.
+- `approvals`: implemented server-issued single-use approval bound to canonical payload/HMAC, immutable snapshot, consent/purpose, lender/offer and policy/workflow versions and expiries; consumed atomically.
+- `lender_results`: nonsensitive lender and expiry metadata; rule trace and illustrative offer are in deletable `sensitive_lender_result_data`.
+- `workflow_steps`: durable PostgreSQL queue with attempts/max, availability, lease token/expiry, payload/result, dispatch linkage, and dead-letter timestamp.
+- `submission_intents`: immutable lender/key/payload digest and workflow linkage; raw payload is isolated in deletable `sensitive_dispatch_payloads`. `simulator_ledger`: unique lender/key and canonical payload hash/result; same key/different hash conflicts. The simulator ledger response is retained as minimum reconciliation evidence.
+- `audit_events`: append-only workflow sequence and tamper-evident hash chain.
+- `security_events`: append-only request/security activity with no workflow foreign key.
+- `lab_runs` / `lab_events`: operator database role only; isolated from borrower tables.
+
+## Threat model
+
+Untrusted inputs include browser requests, borrower text, model output, simulated provider responses, and fault parameters. Threats: IDOR/cross-borrower access, forged/replayed sessions, operator privilege escalation, password/token leakage, approval substitution, double submission after timeout, consent/cancellation races, audit tampering, queue stale-worker effects, data leakage, and misleading test metrics. Controls include signed revocable sessions, database role separation, owner predicates, narrow SQL function grants, immutable DB triggers, fixed-path security-definer functions, outbound allowlists, stable idempotency, append-only security events, deterministic rules, and real-PostgreSQL tests. Local demo credentials and defaults are not deployment secrets.
+
+## Checkpoint 2 acceptance criteria
+
+1. Compose specifies separate migration/runtime/lab roles and real PostgreSQL; fresh migrations and seeds are reproducible. Docker startup must be observed before marking verified.
+2. Runtime cannot remove audit triggers or alter protected audit rows; lab role cannot read or modify borrower profiles.
+3. Signed sessions are borrower/role bound, checked against current server-side user and session rows, expire, reject tampering, support logout; wrong-role and cross-borrower access are denied and logged. Sample-secret production startup is refused; user role remains distinct from PostgreSQL runtime identity.
+4. `submission_unknown` is explicit; same-key reconciliation is required before retry.
+5. Immutable versioned snapshots produce rule-level traces from actual inputs.
+6. Three distinct adapters enforce outbound field allowlists.
+7. Simulator idempotency replays same payload and conflicts on changed payload.
+8. Audit order/hash chain and database immutability are verified.
+9. Queue uses `SKIP LOCKED`, leases, capped retries, injected time, dead-letter handling, and is tested with simultaneous PostgreSQL workers.
+10. Amortized offers define paise rounding under an explicit Decimal context, include independent golden vectors, final residual, and honest comparison label; property-based schedule invariants run.
+11. Security events record auth failures, cross-borrower denials, wrong roles, and lab admin activity without credentials/secrets.
+12. PostgreSQL integration tests run with migration-owner, runtime, and lab roles. CI and Docker status are reported only when observed.
+
+## Checkpoint gates and implementation status
+
+- **Checkpoint 3A — Approval consumption, write-ahead dispatch, concurrency, restart recovery, reconciliation (implemented).** Approval canonicalization, HMAC binding, single-use consumption, expiry checks at consumption and dispatch, material-change invalidation, durable dispatch intent before I/O, same-key reconciliation, concurrent queue claims, stale lease behavior, deadlock retries, worker crash/restart, ordered audit, and operator-only conflict evidence are implemented. Acceptance tests and observed results are mapped in `docs/checkpoint-3a-verification.md`. The simulator ledger is a same-PostgreSQL synthetic service and does not establish exactly-once behavior against a real remote lender. Remaining limitations are listed in that report.
+- **Checkpoint 3B — Consent revocation, privacy handling, cross-workflow cancellation, re-grant semantics (implemented; see `docs/checkpoint-3b-verification.md`).** Acceptance: consent is locked before sorted workflows; revocation atomically blocks unclaimed work and cancels eligible active workflows; already-dispatched effects are reconciliation-only; new consent creates a new grant/workflow; direct accessible revocation needs no AI; exact consent text version and keyed hash are bound; deletable sensitive fields are separate from immutable nonsensitive audit metadata; key location and backup deletion limits documented without crypto-erasure claims. Acceptance tests include direct revocation, purpose/text binding, invalidation of approvals, revocation before send and during in-flight calls, post-effect reconciliation after deletion, no resend without an effect, multi-workflow revocation, new grant/workflow on re-consent, authorization boundaries, and audit continuity.
+- **Checkpoint 3C — Fault-injection lab, deliberately unsafe baseline, reproducible reliability measurements (not started; not authorized by this work).** Acceptance: operator-only fault runs remain isolated from borrower workflows; harness covers lost-before-lender, committed-effect/lost-response, duplicate response, conflicting response, and late response; unsafe baseline demonstrates detection; safety metrics count invariant violations, actual recovery times, and stuck workflows; every run records count/numerator/denominator/seed/commit SHA/config hash/environment; repeatable seeded schedules separated from nondeterministic concurrency interleavings; zero observed failures never mean proven 100% reliability. Planned tests: `test_operator_only_fault_configuration`, `test_fault_schedule_is_reproducible_from_seed`, `test_fault_harness_detects_unsafe_baseline`, `test_safety_metrics_count_invariant_violations`, `test_recovery_time_and_stuck_workflow_metrics`, `test_concurrency_interleavings_reported_separately`.
+- **Checkpoint 4:** optional Gemini integration behind deterministic mock-tested allowlists.
+- **Checkpoint 5:** focused accessible UI and Playwright journeys; backend correctness/reproducibility take priority over visual complexity.
+- **Checkpoint 6:** final verification and honest portfolio release.
+
+Do not start the next checkpoint without explicit authorization.

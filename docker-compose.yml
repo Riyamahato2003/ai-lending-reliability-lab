@@ -1,0 +1,63 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: lending_lab
+      POSTGRES_USER: lending_migrator
+      POSTGRES_PASSWORD: ${MIGRATION_DB_PASSWORD:-lending-migrator-demo}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:-lending-runtime-demo}
+      LAB_DB_PASSWORD: ${LAB_DB_PASSWORD:-lending-lab-demo}
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lending_migrator -d lending_lab"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+  migrate:
+    build: .
+    environment:
+      MIGRATION_DATABASE_URL: postgresql://lending_migrator:${MIGRATION_DB_PASSWORD:-lending-migrator-demo}@db:5432/lending_lab
+      DEMO_BORROWER_PASSWORD: ${DEMO_BORROWER_PASSWORD:-borrower-demo}
+      DEMO_OPERATOR_PASSWORD: ${DEMO_OPERATOR_PASSWORD:-operator-demo}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["python", "-m", "lending_lab.migrate"]
+    restart: "no"
+  api:
+    build: .
+    environment:
+      APP_MODE: local_demo
+      DATABASE_URL: postgresql://lending_runtime:${APP_DB_PASSWORD:-lending-runtime-demo}@db:5432/lending_lab
+      LAB_DATABASE_URL: postgresql://lending_lab_operator:${LAB_DB_PASSWORD:-lending-lab-demo}@db:5432/lending_lab
+      SESSION_SIGNING_SECRET: ${SESSION_SIGNING_SECRET:-local-only-change-before-use}
+      APPROVAL_HMAC_SECRET: ${APPROVAL_HMAC_SECRET:-local-only-approval-hmac-key-change-before-use}
+      APPROVAL_HMAC_KEY_VERSION: ${APPROVAL_HMAC_KEY_VERSION:-demo-v1}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-1800}
+      DEMO_BORROWER_PASSWORD: ${DEMO_BORROWER_PASSWORD:-borrower-demo}
+      DEMO_OPERATOR_PASSWORD: ${DEMO_OPERATOR_PASSWORD:-operator-demo}
+    ports:
+      - "8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["uvicorn", "lending_lab.api:app", "--host", "0.0.0.0", "--port", "8000"]
+  worker:
+    build: .
+    environment:
+      APP_MODE: local_demo
+      DATABASE_URL: postgresql://lending_runtime:${APP_DB_PASSWORD:-lending-runtime-demo}@db:5432/lending_lab
+      LAB_DATABASE_URL: postgresql://lending_lab_operator:${LAB_DB_PASSWORD:-lending-lab-demo}@db:5432/lending_lab
+      SESSION_SIGNING_SECRET: ${SESSION_SIGNING_SECRET:-local-only-change-before-use}
+      APPROVAL_HMAC_SECRET: ${APPROVAL_HMAC_SECRET:-local-only-approval-hmac-key-change-before-use}
+      APPROVAL_HMAC_KEY_VERSION: ${APPROVAL_HMAC_KEY_VERSION:-demo-v1}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["python", "-m", "lending_lab.worker"]
+volumes:
+  postgres_data:
