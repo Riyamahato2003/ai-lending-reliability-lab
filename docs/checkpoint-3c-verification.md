@@ -116,7 +116,7 @@ Focused repeated command selected `tests/test_reliability_lab.py` plus:
 
 The final-code repeated sample ran **5 independent pytest executions**, **16 passed per execution**, **80 passed total, 0 failed, 0 skipped**. Each execution launched a separate pytest process against the same explicitly disposable test database; fixtures reset test tables each time. The concurrency cases use PostgreSQL barriers/worker coordination. Results are finite observations, not proof over all schedules.
 
-`.venv/bin/python -m compileall -q lending_lab tests scripts` and `git diff --check` completed successfully. `pytest --collect-only -q` collected 79 tests. Docker Compose could not be run because `docker` is not installed. GitHub Actions was not triggered for these uncommitted changes. The latest hosted CI result is the prior 3B run [45129430058](https://github.com/Riyamahato2003/ai-lending-reliability-lab/actions/runs/45129430058); it is not a Checkpoint 3C result.
+`.venv/bin/python -m compileall -q lending_lab tests scripts` and `git diff --check` completed successfully. `pytest --collect-only -q` collected 79 tests. Docker Compose could not be run because `docker` is not installed. Hosted GitHub Actions for the pushed Checkpoint 3C commit `d5bb414d5a846aa08b1ba309a438d280ce72418c` completed successfully: [run 45145267495](https://github.com/Riyamahato2003/ai-lending-reliability-lab/actions/runs/45145267495). It observed 79 passed, 0 failures, 0 skips and the explicit JUnit assertion passed. GitHub emitted an Actions Node.js 20 deprecation warning; it did not fail the workflow. The older Checkpoint 3B run is [45129430058](https://github.com/Riyamahato2003/ai-lending-reliability-lab/actions/runs/45129430058).
 
 ## Limitations and remaining risks
 
@@ -127,5 +127,5 @@ The final-code repeated sample ran **5 independent pytest executions**, **16 pas
 - A killed experiment leaves an incomplete `running` record and partial immutable trial data. There is no resume/delete/cleanup API; manual maintenance would require migration-owner review.
 - Wall-clock timestamps/durations differ across repeat runs. PostgreSQL thread scheduling is nondeterministic and is not controlled by the experiment seed.
 - No statistical confidence interval is reported. Zero observed violations in finite samples do not imply 100% reliability.
-- Docker and hosted Checkpoint 3C CI are unverified. The independent reviewer’s full database reproduction has not been performed in this workspace task.
+- Docker remains unverified. Hosted CI passed for the recorded commit above; the independent reviewer’s full database reproduction has not been performed in this workspace task.
 - The project remains synthetic and illustrative; no real borrower, lender, financial effect, regulatory status, or exact-once external guarantee is involved.
