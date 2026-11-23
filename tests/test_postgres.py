@@ -48,7 +48,7 @@ def test_cross_borrower_access_denied():
     assert client.post(f"/workflows/{workflow['id']}/evaluate", headers=other).status_code == 404
     assert client.get("/operator/lab/status", headers=owner).status_code == 403
     operator = login(client, "lab-operator", "operator-demo")
-    assert client.get("/operator/lab/status", headers=operator).json()["fault_injection_available"] is False
+    assert client.get("/operator/lab/status", headers=operator).json()["fault_injection_available"] is True
     assert client.get("/workflows/00000000-0000-0000-0000-000000000001",
                       headers=operator).status_code == 403
 
@@ -159,7 +159,7 @@ def test_migrations_and_seed_are_reproducible(owner_db):
         after = cur.execute("SELECT count(*) AS n FROM borrower_profiles").fetchone()["n"]
         migrations = cur.execute("SELECT count(*) AS n FROM schema_migrations").fetchone()["n"]
     assert before == after == 2
-    assert migrations == 6
+    assert migrations == 7
 
 
 def test_postgres_step_claim_and_lease_token(db):

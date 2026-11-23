@@ -2,9 +2,9 @@
 
 An original engineering demonstration of reliable workflow patterns using synthetic borrower data and three simulated lenders. It is not a clone of a lender product and makes no claim of real financial eligibility, preapproval, guaranteed offers, production use, regulatory certification, or compliance. All calculated offers are explicitly illustrative.
 
-## Implemented backend scope (Checkpoints 2 and 3A)
+## Implemented backend scope (Checkpoints 2, 3A, 3B, and 3C)
 
-Implemented here: FastAPI/Pydantic service, real PostgreSQL migrations and synthetic fixtures, distinct migration-owner/runtime/lab database roles, signed revocable demo sessions, borrower ownership checks, separate immutable security events, versioned deterministic rules, immutable evaluation snapshots, lender-specific outbound field allowlists, persistent simulator-side idempotency ledger, ordered hash-chained audit rows, `submission_unknown` recovery, single-use HMAC-bound approvals, write-ahead dispatch intents, a separate PostgreSQL worker, lease recovery, same-key simulator reconciliation, immutable audit events, and restricted operator conflict review. Consent revocation, fault-injection lab, AI, and frontend remain future checkpoints. The worker and API share the restricted application DB credential; the simulator ledger models but cannot prove exactly-once effects against an independent remote service. See [PLAN.md](PLAN.md), [Checkpoint 2 verification](docs/checkpoint-2-verification.md), and [Checkpoint 3A verification](docs/checkpoint-3a-verification.md).
+Implemented here: FastAPI/Pydantic service, real PostgreSQL migrations and synthetic fixtures, distinct migration-owner/runtime/lab database roles, signed revocable demo sessions, borrower ownership checks, immutable security events, versioned deterministic rules, lender-specific outbound field allowlists, a persistent simulator ledger, ordered hash-chained audit, `submission_unknown` recovery, single-use HMAC-bound approvals, write-ahead dispatch, lease recovery, consent revocation and synthetic-data deletion, and a deterministic operator-only Reliability Lab with safe/unsafe runs. Gemini and frontend remain future checkpoints. The API uses the restricted runtime credential for borrower operations and a separate lab credential only after operator authorization. Both simulator ledgers are synthetic PostgreSQL simulations; they do not establish exactly-once effects against an independent remote service. See [PLAN.md](PLAN.md) and the [Checkpoint 2](docs/checkpoint-2-verification.md), [3A](docs/checkpoint-3a-verification.md), [3B](docs/checkpoint-3b-verification.md), and [3C](docs/checkpoint-3c-verification.md) verification reports.
 
 ## Run locally with Docker Compose
 
@@ -36,7 +36,24 @@ curl -s localhost:8000/workflows -H "authorization: Bearer $TOKEN" -H 'content-t
 
 Stop the stack with `docker compose down`. To remove the local PostgreSQL volume and recreate synthetic fixtures from scratch, run `docker compose down -v` and start again.
 
-Compose initializes PostgreSQL with `lending_migrator`, `lending_runtime`, and `lending_lab_operator`. Migrations run in a one-shot service using the migration-owner DSN; the API connects only as `lending_runtime`. The lab database role is limited to lab tables and is reserved for later lab administration.
+Compose initializes PostgreSQL with `lending_migrator`, `lending_runtime`, and `lending_lab_operator`. Migrations run in a one-shot service using the migration-owner DSN. Borrower and workflow operations use `lending_runtime`; operator lab runs use `lending_lab_operator` only after the user session is verified as an operator. PostgreSQL permissions deny the lab role access to borrower profiles, snapshots, consent grants, and workflow submissions.
+
+## Reliability Lab API
+
+The lab is a backend experiment harness, not a dashboard or a real lender integration. Start Docker Compose, log in as the seeded `lab-operator`, then call:
+
+1. `GET /operator/lab/scenarios` to list the five fixed fault schedules.
+2. `POST /operator/lab/runs` once with `implementation: "safe"`, then again with `implementation: "unsafe"`, using identical scenario, seed, trial count, and revocation option.
+3. `POST /operator/lab/compare` with the two returned run IDs.
+4. `GET /operator/lab/runs/{run_id}` to retrieve per-trial traces and metrics.
+
+Example safe request body (send with the operator bearer token):
+
+```json
+{"implementation":"safe","scenario":"EFFECT_COMMITTED_RESPONSE_LOST","seed":42,"trials":10}
+```
+
+Runs are limited to 100 trials, request bodies to 16 KiB, and one active synchronous experiment per API process. `revoke_before_recovery` is supported only for request-lost and effect-committed scenarios. Run records and ledgers live only in restricted `lab_*` tables and contain synthetic scenario data, not borrower data. The unsafe variant deliberately omits named safety controls and is a teaching baseline; its results are not measured defects in production lending or the safe application. Repeated seeds reproduce logical outcomes, not wall-clock durations or nondeterministic concurrency interleavings.
 
 ## Tests
 
@@ -53,7 +70,7 @@ TEST_LAB_DATABASE_URL=postgresql://lending_lab_operator:lending-lab-demo@localho
 pytest
 ```
 
-Without all three test URLs, PostgreSQL integration tests skip unless `REQUIRE_POSTGRES_TESTS=1`, which fails setup if any DSN is missing. Hypothesis checks amortization accounting, paise rounding, final payment residuals, and stable comparison behavior. The GitHub Actions workflow provisions PostgreSQL 16, bootstraps separate roles, runs tests with JUnit output, and executes an assertion that required integration and Checkpoint 3A tests are present and no tests skipped. A configured workflow is not evidence of an observed CI run.
+Without all three test URLs, PostgreSQL integration tests skip unless `REQUIRE_POSTGRES_TESTS=1`, which fails setup if any DSN is missing. Hypothesis checks amortization accounting, paise rounding, final payment residuals, and stable comparison behavior. The GitHub Actions workflow provisions PostgreSQL 16, bootstraps separate roles, runs tests with JUnit output, and asserts required Checkpoint 2, 3A, 3B, and 3C database cases are present with no skips. A configured workflow is not evidence of an observed run; current run evidence is in the 3C report.
 
 ## Decisions and boundaries
 
@@ -70,15 +87,6 @@ Without all three test URLs, PostgreSQL integration tests skip unless `REQUIRE_P
 
 ## Verification record
 
-Checkpoint 3B implementation and test evidence: [docs/checkpoint-3b-verification.md](docs/checkpoint-3b-verification.md).
+Checkpoint 2, 3A, and 3B evidence is in [the Checkpoint 2](docs/checkpoint-2-verification.md), [3A](docs/checkpoint-3a-verification.md), and [3B](docs/checkpoint-3b-verification.md) reports. The latest local run after adding Checkpoint 3C observed **79 passed, 0 failed, 0 skipped** on a fresh disposable PostgreSQL 16.16 database; the required database-test assertion passed. Checkpoint 3C traceability, repeated race/fault results, one actual experiment output, limitations, and reproduction commands are in [docs/checkpoint-3c-verification.md](docs/checkpoint-3c-verification.md).
 
-Checkpoint 2 evidence (historical; current Checkpoint 3A evidence is in `docs/checkpoint-3a-verification.md`). Executed in this workspace on 2026-11-22:
-
-- `APP_MODE=local_demo REQUIRE_POSTGRES_TESTS=1 TEST_DATABASE_URL=postgresql://lending_runtime:runtime-test-password@127.0.0.1:55432/lending_lab_final_verify TEST_MIGRATION_DATABASE_URL=postgresql://lending_migrator@127.0.0.1:55432/lending_lab_final_verify TEST_LAB_DATABASE_URL=postgresql://lending_lab_operator:lab-test-password@127.0.0.1:55432/lending_lab_final_verify .venv/bin/pytest -q --junitxml=/tmp/ai-lending-pytest.xml` — **34 passed, 0 failed, 0 skipped**, using fresh local PostgreSQL 16.16 and Python 3.13.15.
-- `.venv/bin/python scripts/assert_ci_test_results.py /tmp/ai-lending-pytest.xml` — passed: 34 tests, no failures/errors/skips, required integration test names present.
-- `.venv/bin/pytest -q` without PostgreSQL DSNs — **12 passed, 22 skipped**. CI mode separately fails if required DSNs are absent.
-- `.venv/bin/python -m compileall -q lending_lab tests scripts` — passed.
-- YAML parse of `.github/workflows/ci.yml` and `docker-compose.yml` — passed.
-- `git diff --check` — passed.
-
-Pytest emitted one upstream Starlette deprecation warning about using `httpx` with its test client; it did not affect the results. Docker is unavailable in this environment, so `docker compose up --build` is unverified. The CI workflow was not triggered or observed; there is no configured Git remote and therefore no CI run link. Zero observed test failures are not proof of 100% reliability. The lab measurement harness is not implemented in this checkpoint.
+Docker was unavailable (`docker` was not installed), so Compose startup was not verified. Hosted GitHub Actions was last observed for the Checkpoint 3B commit; no hosted run for the current uncommitted Checkpoint 3C changes is claimed. The suite emitted an upstream Starlette/httpx deprecation warning. Zero observed failures in a finite run are not proof of universal reliability.

@@ -57,3 +57,17 @@ A prior focused invocation of `tests/test_checkpoint_3a.py tests/test_checkpoint
 - Docker startup and hosted CI remain unverified.
 
 No Checkpoint 3C implementation was started.
+
+## Final Checkpoint 3B reproduction addendum (2026-11-23)
+
+This addendum supersedes the earlier statement that local PostgreSQL/CI evidence was unavailable. It records a new workspace reproduction performed before finalizing Checkpoint 3C; it is not an independent reviewer run.
+
+- A new database, `lending_lab_3c_verify_final`, was created specifically for this test run. Immediately after creation, PostgreSQL reported owner `lending_migrator` and zero public tables. Migrations populated that database. It was not an unknown or production database.
+- PostgreSQL reported **16.16 (Homebrew)**. The complete PostgreSQL suite with separate migration-owner, runtime, and lab DSNs and `REQUIRE_POSTGRES_TESTS=1` observed **79 passed, 0 failed, 0 skipped**. This includes all Checkpoint 2, 3A, and 3B regression tests plus the new 3C tests. `scripts/assert_ci_test_results.py` reported `tests=79 failures=0 errors=0 skipped=0` and passed its required-test assertion.
+- A focused `tests/test_checkpoint_3b.py` invocation observed **6 passed, 0 failed, 0 skipped**.
+- Migration 006 was reviewed. Synthetic borrower inputs, evaluation inputs, lender-result payloads, dispatch payloads, and approval payload values are stored in separate sensitive tables that revocation deletes. Retained records include consent purpose/version and keyed consent-text digest, immutable workflow audit metadata, approval binding metadata (sensitive values scrubbed), dispatch lender/key/digest/snapshot references, and simulator ledger key/hash/response evidence. The simulated application response contains no borrower financial values.
+- Reconciliation after deletion and revoked-grant refusal to create a new simulator effect are covered by `test_revocation_after_intent_blocks_send_and_recovery_never_retries_without_effect` and `test_revoked_consent_blocks_new_send_but_allows_existing_intent_reconciliation`; both also passed in the full suite. A revoked workflow with no ledger effect remains unresolved and does not resend. A committed effect can still be reconciled from the immutable intent and simulator ledger.
+- Cancellation/state changes and dispatch/recovery acquire consent before workflow locks; revocation locks the consent row then affected workflows in stable order, followed by approval and step rows. The inspected paths preserve that order. Controlled PostgreSQL race tests passed in the complete suite and the additional repeated sample documented in the Checkpoint 3C report.
+- Current hosted Actions evidence exists for the prior Checkpoint 3B commit: [GitHub Actions run 45129430058](https://github.com/Riyamahato2003/ai-lending-reliability-lab/actions/runs/45129430058), which observed 69 passed and no failures/skips. This Actions run predates the current uncommitted Checkpoint 3C changes and is not evidence for them.
+
+Docker remains unavailable in this environment, so Compose startup is unverified. Live-row deletion does not erase WAL, retained backups, exports, snapshots, logs, or external copies; key lifecycle and backup expiry are not proven. The simulator ledger shares this PostgreSQL service and does not prove effects at an independent lender. The finite concurrency evidence does not cover all possible interleavings.

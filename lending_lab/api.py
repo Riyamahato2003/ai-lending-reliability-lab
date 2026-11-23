@@ -1,9 +1,11 @@
 import logging
+import threading
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import Depends, FastAPI, HTTPException, Request, Response
+from starlette.responses import JSONResponse
 from psycopg.types.json import Jsonb
 
 from lending_lab.auth import Principal, get_principal, require_borrower, require_operator, issue_session
@@ -15,10 +17,16 @@ from lending_lab.dispatch import list_reconciliation_conflicts, record_operator_
 from lending_lab.policies import POLICY_VERSION
 from lending_lab.schemas import (EvaluationResponse, Role, SessionRequest, SessionResponse, TransitionRequest,
                                  TransitionResponse, WorkflowCreate, WorkflowResponse, ApprovalCreateRequest,
-                                 ApprovalConsumeRequest, ApprovalResponse, OperatorResolutionRequest)
+                                 ApprovalConsumeRequest, ApprovalResponse, OperatorResolutionRequest,
+                                 LabRunRequest, LabCompareRequest, LabRunResult,
+                                 LabScenarioInfo, LabCompareResult)
 from lending_lab.workflows import evaluate_workflow, transition
 from lending_lab.consent import revoke_consent
 from lending_lab.privacy import consent_text_hmac
+from lending_lab.reliability_lab import (compare_runs as compare_lab_runs,
+                                         get_run as get_lab_run,
+                                         list_scenarios as list_lab_scenarios,
+                                         run_experiment)
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger("lending_lab")
@@ -31,6 +39,60 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="AI Lending Reliability Lab API", version="0.2.0", lifespan=lifespan)
+LAB_REQUEST_MAX_BYTES = 16_384
+_lab_run_slot = threading.BoundedSemaphore(1)
+
+
+class LabRequestSizeLimit:
+    """Buffer at most 16 KiB for bounded state-changing experiment requests."""
+
+    def __init__(self, application, max_bytes: int):
+        self.application = application
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        path = scope.get("path", "")
+        if scope.get("type") != "http" or scope.get("method") != "POST" or \
+                path not in {"/operator/lab/runs", "/operator/lab/compare"}:
+            await self.application(scope, receive, send)
+            return
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        content_length = headers.get(b"content-length")
+        if content_length:
+            try:
+                if int(content_length) > self.max_bytes:
+                    response = JSONResponse({"detail": "Lab request exceeds 16 KiB"}, status_code=413)
+                    await response(scope, receive, send)
+                    return
+            except ValueError:
+                pass
+        messages = []
+        size = 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body = message.get("body", b"")
+            size += len(body)
+            if size > self.max_bytes:
+                response = JSONResponse({"detail": "Lab request exceeds 16 KiB"}, status_code=413)
+                await response(scope, receive, send)
+                return
+            messages.append(message)
+            if not message.get("more_body", False):
+                break
+        replay = iter(messages)
+
+        async def replay_receive():
+            try:
+                return next(replay)
+            except StopIteration:
+                return {"type": "http.disconnect"}
+
+        await self.application(scope, replay_receive, send)
+
+
+app.add_middleware(LabRequestSizeLimit, max_bytes=LAB_REQUEST_MAX_BYTES)
 
 
 def _log_cross_borrower_attempt(workflow_id: str, borrower_id: str, actor: Principal,
@@ -222,8 +284,59 @@ def operator_scaffold(request: Request, principal: Principal = Depends(require_o
     append_security_event("operator_lab_administration", request.state.correlation_id,
                           actor_role=principal.role.value, actor_ref=principal.username,
                           resource_type="lab", details={"action": "status_view"})
-    return {"mode": "operator-scaffold", "fault_injection_available": False,
+    return {"mode": "isolated-reliability-lab", "fault_injection_available": True,
             "principal": principal.username, "lab_data_isolated": True}
+
+
+@app.get("/operator/lab/scenarios", response_model=list[LabScenarioInfo])
+def operator_lab_scenarios(request: Request, principal: Principal = Depends(require_operator)):
+    scenarios = list_lab_scenarios()
+    append_security_event("operator_lab_administration", request.state.correlation_id,
+                          actor_role=principal.role.value, actor_ref=principal.username,
+                          resource_type="lab", details={"action": "scenarios_listed"})
+    return scenarios
+
+
+@app.post("/operator/lab/runs", response_model=LabRunResult, status_code=201)
+def operator_start_lab_run(body: LabRunRequest, request: Request,
+                           principal: Principal = Depends(require_operator)):
+    append_security_event("operator_lab_administration", request.state.correlation_id,
+                          actor_role=principal.role.value, actor_ref=principal.username,
+                          resource_type="lab", details={"action": "run_started",
+                          "implementation": body.implementation.value, "scenario": body.scenario.value,
+                          "trials": body.trials})
+    if not _lab_run_slot.acquire(blocking=False):
+        raise HTTPException(status_code=429, detail="A bounded lab run is already executing")
+    try:
+        return run_experiment(body, principal.username)
+    finally:
+        _lab_run_slot.release()
+
+
+@app.get("/operator/lab/runs/{run_id}", response_model=LabRunResult)
+def operator_get_lab_run(run_id: str, request: Request,
+                         principal: Principal = Depends(require_operator)):
+    result = get_lab_run(run_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Lab run not found")
+    append_security_event("operator_lab_administration", request.state.correlation_id,
+                          actor_role=principal.role.value, actor_ref=principal.username,
+                          resource_type="lab_run", resource_id=run_id,
+                          details={"action": "run_result_viewed"})
+    return result
+
+
+@app.post("/operator/lab/compare", response_model=LabCompareResult)
+def operator_compare_lab_runs(body: LabCompareRequest, request: Request,
+                              principal: Principal = Depends(require_operator)):
+    result = compare_lab_runs(body.safe_run_id, body.unsafe_run_id)
+    if result.get("error"):
+        raise HTTPException(status_code=422, detail=result["error"])
+    append_security_event("operator_lab_administration", request.state.correlation_id,
+                          actor_role=principal.role.value, actor_ref=principal.username,
+                          resource_type="lab", details={"action": "runs_compared",
+                          "scenario": result["scenario"], "trials": result["trials"]})
+    return result
 
 
 @app.get("/operator/reconciliation-conflicts")

@@ -17,8 +17,9 @@ def connect_migrator():
     return psycopg.connect(get_settings().migration_database_url, row_factory=dict_row)
 
 
-def connect_lab():
-    return psycopg.connect(get_settings().lab_database_url, row_factory=dict_row)
+def connect_lab(*, autocommit: bool = False):
+    return psycopg.connect(get_settings().lab_database_url, row_factory=dict_row,
+                           autocommit=autocommit)
 
 
 @contextmanager
