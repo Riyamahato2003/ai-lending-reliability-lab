@@ -47,13 +47,15 @@ The lab is a backend experiment harness, not a dashboard or a real lender integr
 3. `POST /operator/lab/compare` with the two returned run IDs.
 4. `GET /operator/lab/runs/{run_id}` to retrieve per-trial traces and metrics.
 
+This is an isolated teaching model in `lab_*` tables; it does not run the full production dispatch state machine and no real external lender or production credit system is involved. In a safe trial, the synthetic dispatch intent commits independently before the next PostgreSQL transaction simulates the lender effect and recovery logic. That simulation does not reproduce an external network boundary. Separate real worker process crash/restart tests are in Checkpoint 3A. If a lab process stops mid-run, its immutable partial run can remain `running`; it is not a completed measurement and is not automatically resumed.
+
 Example safe request body (send with the operator bearer token):
 
 ```json
 {"implementation":"safe","scenario":"EFFECT_COMMITTED_RESPONSE_LOST","seed":42,"trials":10}
 ```
 
-Runs are limited to 100 trials, request bodies to 16 KiB, and one active synchronous experiment per API process. `revoke_before_recovery` is supported only for request-lost and effect-committed scenarios. Run records and ledgers live only in restricted `lab_*` tables and contain synthetic scenario data, not borrower data. The unsafe variant deliberately omits named safety controls and is a teaching baseline; its results are not measured defects in production lending or the safe application. Repeated seeds reproduce logical outcomes, not wall-clock durations or nondeterministic concurrency interleavings.
+Runs are limited to 100 trials, request bodies to 16 KiB, and one active synchronous experiment per API process. `revoke_before_recovery` is supported only for request-lost and effect-committed scenarios. Run records and ledgers live only in restricted `lab_*` tables and contain synthetic scenario data, not borrower data. The unsafe variant deliberately omits named safety controls and is a teaching baseline; its results are not measured defects in production lending or the safe application. The observed safe/unsafe sample is finite evidence for that seed and schedule, not a universal reliability guarantee. Repeated seeds reproduce logical outcomes, not wall-clock durations or nondeterministic concurrency interleavings.
 
 ## Tests
 
