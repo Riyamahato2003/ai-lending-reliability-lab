@@ -27,6 +27,11 @@ from lending_lab.reliability_lab import (compare_runs as compare_lab_runs,
                                          get_run as get_lab_run,
                                          list_scenarios as list_lab_scenarios,
                                          run_experiment)
+from lending_lab.ai.schemas import (ExplainRequest, ExplanationResponse, CapabilitiesResponse,
+                                    ConsentGrantResponse, AIConsentRequest)
+from lending_lab.ai.service import (consent_status as ai_consent_status,
+                                    explain as explain_workflow, grant_ai_consent,
+                                    revoke_ai_consent)
 
 logging.basicConfig(level=logging.INFO, format='%(message)s')
 logger = logging.getLogger("lending_lab")
@@ -52,8 +57,11 @@ class LabRequestSizeLimit:
 
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
+        bounded_paths = {"/operator/lab/runs", "/operator/lab/compare",
+                         "/assistant/consent"}
+        is_explain = path.startswith("/workflows/") and path.endswith("/assistant/explain")
         if scope.get("type") != "http" or scope.get("method") != "POST" or \
-                path not in {"/operator/lab/runs", "/operator/lab/compare"}:
+                (path not in bounded_paths and not is_explain):
             await self.application(scope, receive, send)
             return
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
@@ -61,7 +69,7 @@ class LabRequestSizeLimit:
         if content_length:
             try:
                 if int(content_length) > self.max_bytes:
-                    response = JSONResponse({"detail": "Lab request exceeds 16 KiB"}, status_code=413)
+                    response = JSONResponse({"detail": "Request exceeds 16 KiB"}, status_code=413)
                     await response(scope, receive, send)
                     return
             except ValueError:
@@ -75,7 +83,7 @@ class LabRequestSizeLimit:
             body = message.get("body", b"")
             size += len(body)
             if size > self.max_bytes:
-                response = JSONResponse({"detail": "Lab request exceeds 16 KiB"}, status_code=413)
+                response = JSONResponse({"detail": "Request exceeds 16 KiB"}, status_code=413)
                 await response(scope, receive, send)
                 return
             messages.append(message)
@@ -225,6 +233,64 @@ def get_workflow(workflow_id: str, request: Request, principal: Principal = Depe
     return {**row, "id": str(row["id"])}
 
 
+@app.get("/assistant/consent", response_model=ConsentGrantResponse)
+def get_ai_consent(principal: Principal = Depends(require_borrower)):
+    return ConsentGrantResponse(**ai_consent_status(principal.borrower_id))
+
+
+@app.post("/assistant/consent", response_model=ConsentGrantResponse, status_code=201)
+def create_ai_consent(body: AIConsentRequest, request: Request,
+                      principal: Principal = Depends(require_borrower)):
+    return ConsentGrantResponse(**grant_ai_consent(principal.borrower_id, body.consent_text,
+                                                   principal.username, request.state.correlation_id))
+
+
+@app.post("/assistant/consent/{grant_id}/revoke")
+def revoke_ai_consent_direct(grant_id: str, request: Request,
+                             principal: Principal = Depends(require_borrower)):
+    return revoke_ai_consent(grant_id, principal.borrower_id, principal.username,
+                             request.state.correlation_id)
+
+
+@app.get("/workflows/{workflow_id}/assistant/capabilities", response_model=CapabilitiesResponse)
+def workflow_assistant_capabilities(workflow_id: str, request: Request,
+                                   principal: Principal = Depends(require_borrower)):
+    if _log_cross_borrower_attempt(workflow_id, principal.borrower_id, principal,
+                                   request.state.correlation_id, "assistant_capabilities"):
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    with connect() as conn:
+        exists = conn.execute("SELECT 1 FROM workflows WHERE id=%s AND borrower_id=%s",
+                              (workflow_id, principal.borrower_id)).fetchone()
+    if not exists:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    status = ai_consent_status(principal.borrower_id)["status"]
+    from lending_lab.config import get_settings
+    return CapabilitiesResponse(modes=["deterministic", "mock", "gemini"],
+                                selected_mode=get_settings().ai_mode,
+                                external_ai_consent_required=True,
+                                external_ai_consent_active=status == "active",
+                                tool_allowlist=["get_workflow_status", "explain_rule_trace",
+                                                "compare_simulated_offers", "explain_consent_or_approval_requirements"],
+                                actions_available=[])
+
+
+@app.post("/workflows/{workflow_id}/assistant/explain", response_model=ExplanationResponse)
+def explain_workflow_question(workflow_id: str, body: ExplainRequest, request: Request,
+                              principal: Principal = Depends(require_borrower)):
+    if _log_cross_borrower_attempt(workflow_id, principal.borrower_id, principal,
+                                   request.state.correlation_id, "assistant_explain"):
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    # Positive ownership/existence gate must precede any optional external model call.
+    with connect() as conn:
+        owned = conn.execute("SELECT 1 FROM workflows WHERE id=%s AND borrower_id=%s",
+                             (workflow_id, principal.borrower_id)).fetchone()
+    if not owned:
+        raise HTTPException(status_code=404, detail="Workflow not found")
+    return explain_workflow(workflow_id=workflow_id, borrower_id=principal.borrower_id,
+                            question=body.question, correlation_id=request.state.correlation_id,
+                            configured_mode=get_settings().ai_mode)
+
+
 @app.post("/workflows/{workflow_id}/evaluate", response_model=EvaluationResponse)
 def run_evaluation(workflow_id: str, request: Request, principal: Principal = Depends(require_borrower)):
     if _log_cross_borrower_attempt(workflow_id, principal.borrower_id, principal,
@@ -361,3 +427,78 @@ def operator_record_reconciliation_review(intent_id: str, body: OperatorResoluti
                           resource_type="submission_intent", resource_id=intent_id,
                           details={"action": "conflict_review_recorded", "disposition": body.disposition})
     return result
+
+
+
+# Checkpoint 5: read-only, borrower-scoped presentation endpoints.
+@app.get("/workflows")
+def list_borrower_workflows(principal: Principal = Depends(require_borrower)):
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT w.id,w.state,w.version,w.policy_version,w.consent_grant_id,
+                      w.created_at,w.updated_at,c.status AS consent_status
+                 FROM workflows w JOIN consent_grants c ON c.id=w.consent_grant_id
+                WHERE w.borrower_id=%s ORDER BY w.created_at DESC,w.id DESC LIMIT 50""",
+            (principal.borrower_id,),
+        ).fetchall()
+    return [{**row, "id": str(row["id"]), "consent_grant_id": str(row["consent_grant_id"])}
+            for row in rows]
+
+
+@app.get("/workflows/{workflow_id}/evidence/{view}")
+def borrower_workflow_evidence(workflow_id: str, view: str,
+                               principal: Principal = Depends(require_borrower)):
+    # The caller may choose only an explicit read-only presentation view.
+    from lending_lab.ai.schemas import (WorkflowStatusInput, RuleTraceInput,
+                                        OfferComparisonInput, ConsentRequirementsInput)
+    from lending_lab.ai.tools import (get_workflow_status, explain_rule_trace,
+                                      compare_simulated_offers, explain_consent_or_approval_requirements)
+    views = {
+        "status": (WorkflowStatusInput, get_workflow_status),
+        "rules": (RuleTraceInput, explain_rule_trace),
+        "offers": (OfferComparisonInput, compare_simulated_offers),
+        "requirements": (ConsentRequirementsInput, explain_consent_or_approval_requirements),
+    }
+    if view not in views:
+        raise HTTPException(status_code=404, detail="Evidence view not found")
+    schema, reader = views[view]
+    with connect() as conn:
+        evidence = reader(conn, schema(workflow_id=workflow_id), principal.borrower_id)
+    from lending_lab.ai.validation import validate_evidence
+    return validate_evidence(evidence, workflow_id).model_dump()
+
+
+@app.get("/operator/lab/runs")
+def list_operator_lab_runs(principal: Principal = Depends(require_operator)):
+    from lending_lab.db import connect_lab
+    with connect_lab() as conn:
+        rows = conn.execute(
+            """SELECT id,implementation,scenario,seed,trial_count,run_status,
+                      effects_created,confirmed_effects,duplicate_effects,created_at
+                 FROM lab_runs ORDER BY created_at DESC,id DESC LIMIT 30"""
+        ).fetchall()
+    return [{**row, "id": str(row["id"])} for row in rows]
+
+
+@app.post("/operator/dispatch/process-next")
+def operator_process_next_simulated_submission(request: Request,
+                                               principal: Principal = Depends(require_operator)):
+    """Demo-only bounded manual worker action; no new key or approval is created."""
+    from lending_lab.dispatch import run_dispatch_worker_once
+    if get_settings().app_mode != "local_demo":
+        raise HTTPException(status_code=403, detail="Manual dispatch is available only in local demo mode")
+    result = run_dispatch_worker_once(correlation_id=request.state.correlation_id)
+    append_security_event("operator_lab_administration", request.state.correlation_id,
+                          actor_role=principal.role.value, actor_ref=principal.username,
+                          resource_type="dispatch_worker",
+                          details={"action": "process_one_approved_step", "result_status": result.get("status")})
+    return {k:v for k,v in result.items() if k in {"status","reason","workflow_state","intent_id","step_id"}}
+
+
+# Serve the packaged single-page frontend after all API routes. In development,
+# Vite can run separately with its scoped /api-less proxy configuration.
+from pathlib import Path as _FrontendPath
+from fastapi.staticfiles import StaticFiles as _StaticFiles
+_frontend_dist = _FrontendPath(__file__).resolve().parent.parent / "frontend" / "dist"
+if _frontend_dist.is_dir():
+    app.mount("/", _StaticFiles(directory=str(_frontend_dist), html=True), name="frontend")

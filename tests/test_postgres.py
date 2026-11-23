@@ -159,7 +159,7 @@ def test_migrations_and_seed_are_reproducible(owner_db):
         after = cur.execute("SELECT count(*) AS n FROM borrower_profiles").fetchone()["n"]
         migrations = cur.execute("SELECT count(*) AS n FROM schema_migrations").fetchone()["n"]
     assert before == after == 2
-    assert migrations == 7
+    assert migrations == 8
 
 
 def test_postgres_step_claim_and_lease_token(db):

@@ -29,6 +29,19 @@ REQUIRED_TESTS = {
     "test_invalid_experiment_configurations_are_rejected_before_persistence",
     "test_operator_authorization_and_lab_role_database_isolation",
     "test_lab_records_contain_no_borrower_payload_values",
+    "test_assistant_golden_evidence_selection_and_answer_safety",
+    "test_assistant_cross_borrower_and_wrong_role_are_denied",
+    "test_ai_consent_is_separate_direct_revocable_and_versioned",
+    "test_ai_consent_revocation_fences_external_request_and_preserves_lending",
+    "test_prompt_injection_never_invokes_provider_or_writes",
+    "test_provider_failures_and_invalid_tool_plans_fall_back",
+    "test_network_rate_limit_and_refusal_fall_back_without_provider_details",
+    "test_assistant_confirmation_requires_authoritative_ledger",
+    "test_assistant_confirms_only_authoritative_simulator_ledger",
+    "test_expired_approval_is_explained_from_stored_expiry_fields",
+    "test_missing_gemini_configuration_uses_deterministic_mode",
+    "test_mock_provider_is_repeatable_without_external_consent",
+    "test_ai_execution_metadata_omits_question_and_financial_context",
 }
 
 

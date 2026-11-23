@@ -1,0 +1,9 @@
+[
+  {"case":"ineligible_synthetic_borrower","borrower":"borrower-002","question":"Why am I not eligible under these demo rules?","tool":"explain_rule_trace","required_reference":"evaluation_snapshot","required_text":"demo rule"},
+  {"case":"simulated_offer_order","borrower":"borrower-001","question":"Which simulated offer has the lowest estimated repayment?","tool":"compare_simulated_offers","required_reference":"lender_offer","required_text":"sorted by estimated total repayment"},
+  {"case":"workflow_pending","borrower":"borrower-001","question":"Why is my application still pending?","tool":"get_workflow_status","required_reference":"workflow","required_text":"no confirmed simulated lender submission"},
+  {"case":"consent_requirements","borrower":"borrower-001","question":"What happens if I withdraw consent?","tool":"explain_consent_or_approval_requirements","required_reference":"consent_grant","required_text":"assistant cannot"},
+  {"case":"protected_submission_request","borrower":"borrower-001","question":"Can you submit this application for me?","tool":"explain_consent_or_approval_requirements","required_reference":"workflow","required_text":"cannot approve"},
+  {"case":"expired_approval_question","borrower":"borrower-001","question":"Why is my approval no longer valid?","tool":"explain_consent_or_approval_requirements","required_reference":"approval","required_text":"approval status"},
+  {"case":"response_loss_uncertain","borrower":"borrower-001","question":"What happened when the lender response was lost?","tool":"get_workflow_status","required_reference":"workflow","required_text":"uncertain"}
+]

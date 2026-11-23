@@ -2,9 +2,35 @@
 
 An original engineering demonstration of reliable workflow patterns using synthetic borrower data and three simulated lenders. It is not a clone of a lender product and makes no claim of real financial eligibility, preapproval, guaranteed offers, production use, regulatory certification, or compliance. All calculated offers are explicitly illustrative.
 
-## Implemented backend scope (Checkpoints 2, 3A, 3B, and 3C)
+## Implemented application (Checkpoints 2–5)
 
-Implemented here: FastAPI/Pydantic service, real PostgreSQL migrations and synthetic fixtures, distinct migration-owner/runtime/lab database roles, signed revocable demo sessions, borrower ownership checks, immutable security events, versioned deterministic rules, lender-specific outbound field allowlists, a persistent simulator ledger, ordered hash-chained audit, `submission_unknown` recovery, single-use HMAC-bound approvals, write-ahead dispatch, lease recovery, consent revocation and synthetic-data deletion, and a deterministic operator-only Reliability Lab with safe/unsafe runs. Gemini and frontend remain future checkpoints. The API uses the restricted runtime credential for borrower operations and a separate lab credential only after operator authorization. Both simulator ledgers are synthetic PostgreSQL simulations; they do not establish exactly-once effects against an independent remote service. See [PLAN.md](PLAN.md) and the [Checkpoint 2](docs/checkpoint-2-verification.md), [3A](docs/checkpoint-3a-verification.md), [3B](docs/checkpoint-3b-verification.md), and [3C](docs/checkpoint-3c-verification.md) verification reports.
+Implemented here: FastAPI/Pydantic service, real PostgreSQL migrations and synthetic fixtures, distinct migration-owner/runtime/lab database roles, signed revocable demo sessions, borrower ownership checks, immutable security events, versioned deterministic rules, lender-specific outbound field allowlists, a persistent simulator ledger, ordered hash-chained audit, `submission_unknown` recovery, single-use HMAC-bound approvals, write-ahead dispatch, lease recovery, consent revocation and synthetic-data deletion, a deterministic operator-only Reliability Lab with safe/unsafe runs, and an evidence-grounded read-only explanation assistant. Gemini is optional and not required by CI. A responsive React + TypeScript browser application is implemented and served through FastAPI. Simulated ledger records do not establish exactly-once effects against an independent remote service. See [PLAN.md](PLAN.md) and the checkpoint verification reports.
+
+## Explore the finished Verity demo (Checkpoint 5)
+
+The browser app provides borrower application creation, purpose-specific lending consent, deterministic eligibility and lender comparison, explicit single-use approval, simulator-ledger status, audit timeline, read-only grounded assistant, optional independent AI-processing consent, and an operator-only Reliability Lab. All values and effects are synthetic.
+
+**Local Mac / Homebrew PostgreSQL (already configured with migrator, runtime, and lab roles):**
+
+```sh
+./scripts/start_local_demo.sh
+```
+
+The script uses a dedicated `lending_lab_showcase` database, migrates it if needed, builds the frontend, and starts FastAPI on **http://127.0.0.1:8000**. It never points test fixtures at this showcase database. Stop any other server using port 8000 before starting it. For a portable alternative, use Docker Compose below (container runtime was unavailable on the development Mac and remains unverified).
+
+Sign in with the **synthetic borrower** or **lab operator** accounts in the table below. For a complete local workflow, enter illustrative figures, evaluate, request an eligible offer, explicitly confirm the single-use approval, then sign in as operator to process the queued simulated dispatch. The UI never lets the assistant execute this protected sequence.
+
+**Frontend development and browser tests:**
+
+```sh
+cd frontend
+npm ci
+npm run dev         # Vite on port 5173; proxies API requests to FastAPI on port 8000
+npm run build       # TypeScript check and production bundle
+npm run test:e2e    # Playwright Chromium against running FastAPI on port 8000
+```
+
+See [Checkpoint 5 verification](docs/checkpoint-5-verification.md) and [portfolio release boundaries](docs/release-readiness.md). The browser integration has real PostgreSQL-backed tests, but does not make this a production financial product.
 
 ## Run locally with Docker Compose
 
@@ -15,7 +41,7 @@ cp .env.example .env
 docker compose up --build
 ```
 
-The API is at `http://localhost:8000`; OpenAPI docs are at `/docs`. Compose also starts a separate durable submission worker after migrations complete. Seeded synthetic accounts:
+The **web app** is at `http://localhost:8000`; OpenAPI docs are at `/docs`. Compose also starts a separate durable submission worker after migrations complete. Seeded synthetic accounts:
 
 | Username | Default demo password | Role |
 | --- | --- | --- |
@@ -40,7 +66,7 @@ Compose initializes PostgreSQL with `lending_migrator`, `lending_runtime`, and `
 
 ## Reliability Lab API
 
-The lab is a backend experiment harness, not a dashboard or a real lender integration. Start Docker Compose, log in as the seeded `lab-operator`, then call:
+The lab is an isolated backend experiment harness with a new interactive operator dashboard, not a real lender integration. Start Docker Compose, log in as the seeded `lab-operator`, then call:
 
 1. `GET /operator/lab/scenarios` to list the five fixed fault schedules.
 2. `POST /operator/lab/runs` once with `implementation: "safe"`, then again with `implementation: "unsafe"`, using identical scenario, seed, trial count, and revocation option.
@@ -56,6 +82,12 @@ Example safe request body (send with the operator bearer token):
 ```
 
 Runs are limited to 100 trials, request bodies to 16 KiB, and one active synchronous experiment per API process. `revoke_before_recovery` is supported only for request-lost and effect-committed scenarios. Run records and ledgers live only in restricted `lab_*` tables and contain synthetic scenario data, not borrower data. The unsafe variant deliberately omits named safety controls and is a teaching baseline; its results are not measured defects in production lending or the safe application. The observed safe/unsafe sample is finite evidence for that seed and schedule, not a universal reliability guarantee. Repeated seeds reproduce logical outcomes, not wall-clock durations or nondeterministic concurrency interleavings.
+
+## Evidence-grounded assistant (Checkpoint 4)
+
+Assistant APIs power the integrated read-only borrower interface. `GET /workflows/{id}/assistant/capabilities` shows the selected mode and four read-only evidence topics; `POST /workflows/{id}/assistant/explain` accepts a bounded question. The server checks workflow ownership, reads only that borrower's deterministic records, and composes the answer and references itself. It never grants consent, approves, or submits.
+
+`AI_MODE` is `deterministic` by default; `mock` uses a reproducible local classifier; `gemini` is optional. Install with `pip install -e '.[gemini]'` and set `GEMINI_API_KEY` plus `GEMINI_MODEL` through environment configuration. Gemini receives the bounded question and fixed system instructions, not workflow records or financial snapshots. Because a question may contain sensitive text, the borrower must first grant separate versioned consent using `GET /assistant/consent` and `POST /assistant/consent`; revoke directly with `POST /assistant/consent/{grant_id}/revoke`. Revocation waits for an already-started bounded provider request, then blocks future requests. It does not revoke lender-comparison consent or interrupt lending reconciliation. CI makes no live Gemini requests. Assistant answers remain illustrative and are not credit decisions.
 
 ## Tests
 
@@ -84,11 +116,11 @@ Without all three test URLs, PostgreSQL integration tests skip unless `REQUIRE_P
 - Offers are illustrative monthly amortization in integer INR paise; monthly interest is calculated from annual basis points, rounded half-up each period, and the final payment absorbs residual paise. Comparison label: “sorted by estimated total repayment, then lender ID.” This is not a real financial offer or a “best loan” claim.
 - Purpose-specific consent text is versioned and immutable; grants retain the exact text HMAC, purpose, key version, and text-version reference. Borrowers can revoke directly through the API. Revocation stops unsent work, invalidates approvals, and deletes synthetic financial inputs and associated sensitive workflow payloads. Existing committed intents remain available as minimal reconciliation metadata, and the simulator ledger remains authoritative. Database deletion does not remove copies from retained backups, WAL archives, or exports; this project makes no cryptographic-erasure claim. See the Checkpoint 3B verification report for tested boundaries.
 - Security events are stored separately from loan workflow audit events. They record fixed event/reason values and synthetic actor IDs, never credentials or tokens.
-- Demo bearer tokens are stored in memory by any future client, not URLs/logs. Authorization headers are not browser ambient credentials; a future cookie flow must add SameSite and CSRF token protections.
-- Gemini remains optional and absent in this checkpoint; CI will use a deterministic mock in the later assistant checkpoint.
+- Demo bearer tokens are held only in React component memory, not localStorage, URL parameters, or application logs. Authorization headers are not browser ambient credentials; a future cookie-based design would need SameSite and CSRF defenses.
+- Gemini remains optional. When installed and configured, the maintained `google-genai` SDK is used; credentials and model selection come from environment configuration. CI uses deterministic/mock behavior and does not make live requests. The model selects only a typed read-only topic; all facts and user-visible prose come from server-side evidence and templates.
 
 ## Verification record
 
-Checkpoint 2, 3A, and 3B evidence is in [the Checkpoint 2](docs/checkpoint-2-verification.md), [3A](docs/checkpoint-3a-verification.md), and [3B](docs/checkpoint-3b-verification.md) reports. The latest local run after adding Checkpoint 3C observed **79 passed, 0 failed, 0 skipped** on a fresh disposable PostgreSQL 16.16 database; the required database-test assertion passed. Checkpoint 3C traceability, repeated race/fault results, one actual experiment output, limitations, and reproduction commands are in [docs/checkpoint-3c-verification.md](docs/checkpoint-3c-verification.md).
+Checkpoint 2–4 historical evidence is in the checkpoint reports. The final local integrated suite on disposable PostgreSQL 16.16 recorded **107 passed, 0 failed, 0 skipped**. The browser UI completed **4/4 Playwright Chromium journeys**, including borrower evaluation, read-only assistant, safe-vs-unsafe operator comparison, explicit approval + simulated worker confirmation, and mobile navigation; see [Checkpoint 5 verification](docs/checkpoint-5-verification.md).
 
-Docker was unavailable (`docker` was not installed), so Compose startup was not verified. Hosted Actions passed for Checkpoint 3C commit `d5bb414` ([run 45145267495](https://github.com/Riyamahato2003/ai-lending-reliability-lab/actions/runs/45145267495)); its PostgreSQL suite observed 79 passed and zero skips. The suite emitted an upstream Starlette/httpx warning, and Actions emitted a Node.js 20 deprecation warning. Zero observed failures in a finite run are not proof of universal reliability.
+Docker Compose and live Gemini remain unverified on this development Mac. A successful test sample is finite evidence, not universal reliability or an external lender guarantee. Final hosted CI results must be checked against the exact committed SHA.

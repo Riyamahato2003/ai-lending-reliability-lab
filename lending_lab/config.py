@@ -14,6 +14,11 @@ class Settings(BaseSettings):
     approval_hmac_key_version: str = "demo-v1"
     privacy_hmac_secret: str = "local-only-privacy-hmac-key-change-before-use"
     privacy_hmac_key_version: str = "privacy-demo-v1"
+    ai_mode: str = "deterministic"
+    gemini_api_key: str | None = None
+    gemini_model: str | None = None
+    gemini_timeout_seconds: int = 5
+    assistant_max_question_chars: int = 1000
     session_ttl_seconds: int = 1800
     demo_borrower_password: str = "borrower-demo"
     demo_operator_password: str = "operator-demo"
@@ -31,9 +36,21 @@ class Settings(BaseSettings):
             hosts = {urlparse(url).hostname for url in urls}
             if not hosts.issubset({"localhost", "127.0.0.1", "::1", "db"}):
                 raise ValueError("local_demo database hosts must be loopback or the Compose db service")
+            if self.ai_mode not in {"deterministic", "mock", "gemini"}:
+                raise ValueError("AI_MODE must be deterministic, mock, or gemini")
+            if not 1 <= self.gemini_timeout_seconds <= 10:
+                raise ValueError("GEMINI_TIMEOUT_SECONDS must be between 1 and 10")
+            if not 1 <= self.assistant_max_question_chars <= 1000:
+                raise ValueError("ASSISTANT_MAX_QUESTION_CHARS must be between 1 and 1000")
             return
         if self.app_mode != "production":
             raise ValueError("APP_MODE must be production or explicit local_demo")
+        if self.ai_mode not in {"deterministic", "mock", "gemini"}:
+            raise ValueError("AI_MODE must be deterministic, mock, or gemini")
+        if not 1 <= self.gemini_timeout_seconds <= 10:
+            raise ValueError("GEMINI_TIMEOUT_SECONDS must be between 1 and 10")
+        if not 1 <= self.assistant_max_question_chars <= 1000:
+            raise ValueError("ASSISTANT_MAX_QUESTION_CHARS must be between 1 and 1000")
         if sample_secret or sample_passwords:
             raise ValueError("sample demo secrets are refused outside APP_MODE=local_demo")
         if sample_approval_key:
