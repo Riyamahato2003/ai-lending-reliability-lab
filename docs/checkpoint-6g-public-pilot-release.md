@@ -25,6 +25,13 @@ Status: **hardening proposed; public exposure NOT yet authorized**.
   sufficient evidence of unique client-IP enforcement.
 - Tests cover multi-username throttling, missing peer information and attempted
   forwarding-header spoofing.
+- Optional `TRUST_RAILWAY_EDGE_CLIENT_IP=true` uses Railway's documented
+  `X-Real-IP` header (strictly one valid IPv4 or IPv6 address) for the source
+  bucket instead of the shared ASGI reverse-proxy peer. The default is
+  `false`. **Only enable this in the Railway HTTPS public-edge deployment
+  with no untrusted bypass path.** The flag does not authenticate the header
+  by itself: private callers within the Railway project are part of this
+  trust boundary. Documented header: https://docs.railway.com/networking/public-networking/specs-and-limits
 
 ## Mandatory steps before a usable public demo
 
@@ -33,7 +40,7 @@ Status: **hardening proposed; public exposure NOT yet authorized**.
    cannot change it. **Do not log/store identifiable client IPs** just to test:
    use temporary source-token hashes or aggregate a per-client test result
    through a controlled diagnostic.
-2. Put a trusted edge/WAF/IP-level rate limit in front of pilot login and
+2. When using Railway HTTP ingress, configure and verify `TRUST_RAILWAY_EDGE_CLIENT_IP=true` and confirm spoofed public `X-Real-IP` is replaced by the edge. Put a trusted edge/WAF/IP-level rate limit in front of pilot login and
    expensive endpoints. The in-application peer limit is defense in depth, not
    a substitute for edge controls, particularly if all traffic appears to
    originate from one Railway proxy.
