@@ -75,10 +75,13 @@ def authenticate_pilot(username: str, password: str) -> tuple[str, dict]:
         raise HTTPException(status_code=404, detail="Pilot authentication is unavailable")
     username = _username(username)
     # Never log the username, password, or token.
+    # Commit the failed-attempt counter *before* password verification:
+    # an exception from invalid credentials must not roll back the limit.
+    with transaction() as limiter_conn:
+        allowed = _allow_login_attempt(limiter_conn, username)
+    if not allowed:
+        raise HTTPException(status_code=429, detail="Too many login attempts; try again later")
     with transaction() as conn:
-        allowed = _allow_login_attempt(conn, username)
-        if not allowed:
-            raise HTTPException(status_code=429, detail="Too many login attempts; try again later")
         account = conn.execute(
             """SELECT id,username,password_digest,role,borrower_id,is_active
                FROM pilot_accounts WHERE username=%s""", (username,)
