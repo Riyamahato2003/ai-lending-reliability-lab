@@ -1,0 +1,56 @@
+name: private-staging
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+
+jobs:
+  isolated-synthetic-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate disposable staging credentials
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import os
+          import secrets
+          keys = (
+            "STAGING_APP_DB_PASSWORD", "STAGING_LAB_DB_PASSWORD",
+            "STAGING_MIGRATION_DB_PASSWORD", "STAGING_SESSION_SIGNING_SECRET",
+            "STAGING_APPROVAL_HMAC_SECRET", "STAGING_PRIVACY_HMAC_SECRET"
+          )
+          file = Path(".env.staging.ci")
+          file.write_text("".join(f"{key}={secrets.token_hex(32)}\n" for key in keys)
+                          + "STAGING_SMOKE_ENABLE=1\n")
+          file.chmod(0o600)
+          PY
+      - name: Enforce private topology and least privilege
+        run: |
+          docker compose --env-file .env.staging.ci -f docker-compose.staging.yml --profile smoke config --format json |
+            python scripts/staging_private_check.py
+      - name: Build private images
+        run: docker compose --env-file .env.staging.ci -f docker-compose.staging.yml --profile smoke build
+      - name: Start production-mode synthetic staging
+        run: docker compose --env-file .env.staging.ci -f docker-compose.staging.yml up -d --no-build db migrate api worker
+      - name: Run isolated pilot-authentication smoke
+        run: docker compose --env-file .env.staging.ci -f docker-compose.staging.yml --profile smoke run --rm smoke
+      - name: Inspect status
+        if: always()
+        run: |
+          if [ -f .env.staging.ci ]; then
+            docker compose --env-file .env.staging.ci -f docker-compose.staging.yml ps -a
+          fi
+      - name: Inspect errors only
+        if: failure()
+        run: |
+          if [ -f .env.staging.ci ]; then
+            docker compose --env-file .env.staging.ci -f docker-compose.staging.yml logs --no-color --tail 80
+          fi
+      - name: Destroy disposable data and credentials
+        if: always()
+        run: |
+          if [ -f .env.staging.ci ]; then
+            docker compose --env-file .env.staging.ci -f docker-compose.staging.yml --profile smoke down -v --remove-orphans
+          fi
+          rm -f .env.staging.ci
