@@ -175,7 +175,85 @@ function Empty({
 }
 type LoginMode = "demo" | "pilot";
 
+function PublicTour({ onClose }: { onClose: () => void }) {
+  const [scenario, setScenario] = useState<"lost" | "duplicate">("lost");
+  const lost = scenario === "lost";
+  return (
+    <main className="public-tour">
+      <header className="public-tour-header">
+        <div className="brand">
+          <span className="brand-mark"><Layers3 size={22} /></span>
+          <span>verity<span className="brand-period">.</span></span>
+        </div>
+        <Button variant="secondary" onClick={onClose}>Return to sign in</Button>
+      </header>
+      <div className="public-tour-content">
+        <div className="eyebrow"><FlaskConical size={16} /> PUBLIC INTERACTIVE EXPLAINER</div>
+        <h1>What happens when a lender's confirmation goes missing?</h1>
+        <p className="muted">Explore two reliability failure cases and compare how a guarded workflow
+          behaves against a deliberately unsafe baseline. This tour uses fixed, fictional
+          examples. No account, database write, live lender, or AI service is involved.</p>
+        <div className="public-tour-selector" aria-label="Choose a failure scenario">
+          <button type="button" aria-pressed={lost}
+            className={lost ? "selected" : ""}
+            onClick={() => setScenario("lost")}>Confirmation lost</button>
+          <button type="button" aria-pressed={!lost}
+            className={!lost ? "selected" : ""}
+            onClick={() => setScenario("duplicate")}>Duplicate confirmation</button>
+        </div>
+        <div className="public-tour-grid">
+          <section className="public-tour-panel">
+            <div className="public-tour-label"><CircleAlert size={18} /> Failure injected</div>
+            <h2>{lost ? "The effect happened, but the reply disappeared." :
+              "The same response arrives twice."}</h2>
+            <p>{lost
+              ? "The fictional lender records one submission, but the network drops its acknowledgement before Verity sees it."
+              : "An unreliable transport repeats a confirmation for the same fictional submission."}</p>
+            <div className="public-tour-sequence">
+              <span>1. Approval recorded</span>
+              <span>2. Dispatch intent committed</span>
+              <span>3. {lost ? "Response lost" : "Response repeated"}</span>
+              <span>4. Recovery is required</span>
+            </div>
+          </section>
+          <section className="public-tour-panel public-tour-safe">
+            <div className="public-tour-label"><ShieldCheck size={18} /> Guarded approach</div>
+            <h2>{lost ? "Keep the status unresolved until the ledger confirms it." :
+              "Treat the repeated response as the same effect."}</h2>
+            <p>{lost
+              ? "Reuse the original idempotency key and reconcile against the simulated lender ledger before any retry."
+              : "Match the confirmation to the original immutable intent; do not count a second lender effect."}</p>
+            <div className="public-tour-result">Illustrative outcome: {lost
+              ? "one existing effect can be confirmed without blindly resubmitting"
+              : "one effect remains one effect"}</div>
+          </section>
+          <section className="public-tour-panel public-tour-unsafe">
+            <div className="public-tour-label"><CircleAlert size={18} /> Unsafe teaching baseline</div>
+            <h2>{lost ? "Blindly retry with a fresh key." :
+              "Count every response as new work."}</h2>
+            <p>{lost
+              ? "A new request identifier can produce a duplicate simulated effect when the first one already succeeded."
+              : "Treating delivery count as effect count creates a false picture of what the lender actually did."}</p>
+            <div className="public-tour-result">Illustrative risk: {lost
+              ? "a duplicate effect"
+              : "a duplicate or unverified confirmation"}</div>
+          </section>
+        </div>
+        <div className="public-tour-footer">
+          <div><strong>Want to test the real synthetic workflow?</strong>
+            <p>Borrower and operator workspaces require separately issued pilot credentials.
+              Access to live workflows is not part of this public explainer.</p></div>
+          <Button onClick={onClose}>Go to pilot sign in <ArrowRight size={17} /></Button>
+        </div>
+        <p className="public-tour-disclaimer">Educational simulation only. No real personal information,
+          credit decision, lending offer, external lender transaction, or reliability guarantee.</p>
+      </div>
+    </main>
+  );
+}
+
 function Login({ onLogin }: { onLogin: (s: Session, mode: LoginMode) => void }) {
+  const [showPublicTour, setShowPublicTour] = useState(false);
   const [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
     [pending, setPending] = useState(false),
@@ -216,6 +294,8 @@ function Login({ onLogin }: { onLogin: (s: Session, mode: LoginMode) => void }) 
       setPending(false);
     }
   }
+  if (showPublicTour) return <PublicTour onClose={() => setShowPublicTour(false)} />;
+
   return (
     <div className="login-shell">
       <div className="login-aside">
@@ -267,6 +347,9 @@ function Login({ onLogin }: { onLogin: (s: Session, mode: LoginMode) => void }) 
               ? "This pilot is invitation-only. Use your separately issued credentials to explore synthetic lending workflows."
               : "Sign in to explore the synthetic lending workflow and operator experiment lab."}
           </p>
+          <button type="button" className="public-tour-link" onClick={() => setShowPublicTour(true)}>
+            Explore the public reliability walkthrough <ArrowRight size={16} />
+          </button>
           {mode === "demo" && <div className="demo-switch">
             <button
               className={username === "borrower-001" ? "selected" : ""}
