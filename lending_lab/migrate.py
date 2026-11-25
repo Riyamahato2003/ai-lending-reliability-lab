@@ -14,6 +14,11 @@ def migrate() -> None:
             if already:
                 continue
             conn.execute(path.read_text())
+        # Preserve schema migrations in all modes but NEVER populate fixed demo
+        # identities in non-local environments. Existing demo rows are also
+        # unusable outside local mode because auth verifies APP_MODE.
+        if get_settings().app_mode != "local_demo":
+            return
         # These synthetic credentials are local demo credentials, never production identities.
         borrower_password = hash_demo_password("borrower-001", get_settings().demo_borrower_password)
         borrower_2_password = hash_demo_password("borrower-002", get_settings().demo_borrower_password)
