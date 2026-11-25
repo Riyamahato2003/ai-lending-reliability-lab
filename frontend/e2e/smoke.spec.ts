@@ -7,6 +7,8 @@ test("borrower can create and evaluate a synthetic workflow, then ask grounded A
   await expect(
     page.getByRole("heading", { name: "Welcome to Verity" }),
   ).toBeVisible();
+  await page.getByRole("button", { name: "Borrower demo" }).click();
+  await page.getByLabel("Password").fill("borrower-demo");
   await page.getByRole("button", { name: /Enter workspace/ }).click();
   await expect(page.getByText("Good afternoon")).toBeVisible();
   await page.getByRole("button", { name: /Manage applications/ }).click();
@@ -38,6 +40,7 @@ test("borrower can create and evaluate a synthetic workflow, then ask grounded A
 test("operator runs isolated safe and unsafe comparison", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("button", { name: "Operator lab" }).click();
+  await page.getByLabel("Password").fill("operator-demo");
   await page.getByRole("button", { name: /Enter workspace/ }).click();
   await expect(
     page.getByRole("heading", { name: /Observe the failure/ }),
@@ -59,6 +62,8 @@ test("explicit approval is consumed and operator worker confirms only a syntheti
 }) => {
   const borrower = await browser.newPage();
   await borrower.goto("/");
+  await borrower.getByRole("button", { name: "Borrower demo" }).click();
+  await borrower.getByLabel("Password").fill("borrower-demo");
   await borrower.getByRole("button", { name: /Enter workspace/ }).click();
   await borrower.getByRole("button", { name: /Manage applications/ }).click();
   await borrower.getByRole("button", { name: "New application" }).click();
@@ -82,6 +87,7 @@ test("explicit approval is consumed and operator worker confirms only a syntheti
   const operator = await browser.newPage();
   await operator.goto("/");
   await operator.getByRole("button", { name: "Operator lab" }).click();
+  await operator.getByLabel("Password").fill("operator-demo");
   await operator.getByRole("button", { name: /Enter workspace/ }).click();
   await operator.getByRole("button", { name: /Open Reliability Lab/ }).click();
   await operator
@@ -99,6 +105,8 @@ test("explicit approval is consumed and operator worker confirms only a syntheti
 test("borrower workspace remains navigable on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
+  await page.getByRole("button", { name: "Borrower demo" }).click();
+  await page.getByLabel("Password").fill("borrower-demo");
   await page.getByRole("button", { name: /Enter workspace/ }).click();
   await page.getByRole("button", { name: "Open menu" }).click();
   await page
