@@ -1,0 +1,89 @@
+# Private synthetic staging; no host-facing ports or externally routable network.
+name: verity-private-staging
+x-app-env: &app-env
+  APP_MODE: production
+  DATABASE_URL: postgresql://lending_runtime:${STAGING_APP_DB_PASSWORD:?required}@db:5432/lending_lab
+  LAB_DATABASE_URL: postgresql://lending_lab_operator:${STAGING_LAB_DB_PASSWORD:?required}@db:5432/lending_lab
+  SESSION_SIGNING_SECRET: ${STAGING_SESSION_SIGNING_SECRET:?required}
+  APPROVAL_HMAC_SECRET: ${STAGING_APPROVAL_HMAC_SECRET:?required}
+  APPROVAL_HMAC_KEY_VERSION: staging-v1
+  PRIVACY_HMAC_SECRET: ${STAGING_PRIVACY_HMAC_SECRET:?required}
+  PRIVACY_HMAC_KEY_VERSION: staging-v1
+  AI_MODE: deterministic
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: lending_lab
+      POSTGRES_USER: lending_migrator
+      POSTGRES_PASSWORD: ${STAGING_MIGRATION_DB_PASSWORD:?required}
+      APP_DB_PASSWORD: ${STAGING_APP_DB_PASSWORD:?required}
+      LAB_DB_PASSWORD: ${STAGING_LAB_DB_PASSWORD:?required}
+    volumes:
+      - staging_pgdata:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lending_migrator -d lending_lab"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [private]
+    security_opt: ["no-new-privileges:true"]
+  migrate:
+    build: .
+    environment:
+      APP_MODE: production
+      MIGRATION_DATABASE_URL: postgresql://lending_migrator:${STAGING_MIGRATION_DB_PASSWORD:?required}@db:5432/lending_lab
+    command: ["python", "-m", "lending_lab.migrate"]
+    depends_on:
+      db: {condition: service_healthy}
+    networks: [private]
+    restart: "no"
+    healthcheck: {disable: true}
+  api:
+    build: .
+    environment: *app-env
+    command: ["uvicorn", "lending_lab.api:app", "--host", "0.0.0.0", "--port", "8000"]
+    expose: ["8000"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    read_only: true
+    tmpfs: ["/tmp:rw,nosuid,size=32m"]
+    networks: [private]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health',timeout=3).read()"]
+      interval: 5s
+      timeout: 4s
+      retries: 20
+    security_opt: ["no-new-privileges:true"]
+  worker:
+    build: .
+    environment: *app-env
+    command: ["python", "-m", "lending_lab.worker"]
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+    read_only: true
+    tmpfs: ["/tmp:rw,nosuid,size=32m"]
+    healthcheck: {disable: true}
+    networks: [private]
+    security_opt: ["no-new-privileges:true"]
+  smoke:
+    profiles: ["smoke"]
+    build: .
+    environment:
+      <<: *app-env
+      MIGRATION_DATABASE_URL: postgresql://lending_migrator:${STAGING_MIGRATION_DB_PASSWORD:?required}@db:5432/lending_lab
+      STAGING_SMOKE_ENABLE: ${STAGING_SMOKE_ENABLE:-0}
+    command: ["python", "-m", "lending_lab.staging_smoke"]
+    depends_on:
+      api: {condition: service_healthy}
+    read_only: true
+    tmpfs: ["/tmp:rw,nosuid,size=32m"]
+    healthcheck: {disable: true}
+    restart: "no"
+    networks: [private]
+networks:
+  private:
+    internal: true
+volumes:
+  staging_pgdata:
