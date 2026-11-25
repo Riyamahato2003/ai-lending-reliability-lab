@@ -172,7 +172,7 @@ def create_pilot_login(body: SessionRequest, request: Request):
     if get_settings().app_mode != "production":
         raise HTTPException(status_code=404, detail="Pilot sign-in is unavailable")
     try:
-        token, claims = authenticate_pilot(body.username, body.password)
+        token, claims = authenticate_pilot(body.username, body.password, source_ip=request.client.host if request.client else None)
     except HTTPException:
         append_security_event("authentication_failure", request.state.correlation_id,
                               details={"reason": "pilot_login_rejected"})
