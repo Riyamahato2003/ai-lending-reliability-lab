@@ -84,9 +84,9 @@ restricted technical pilot rather than a general public account system.
 - No live loan submissions or financial decisions.
 - Browser Playwright regression flow should be re-run using explicit local
   demo credentials (they are no longer pre-filled).
-- Production environment still requires non-demo session, approval, privacy,
-  and legacy demo-password configuration to pass startup validation, even
-  though legacy demo accounts are disabled.
+- Production environment requires non-demo session, approval and privacy
+  signing keys. Seeded local-demo passwords cannot authenticate in production
+  and are not required as production configuration.
 
 ## Acceptance criteria
 
