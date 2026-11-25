@@ -56,16 +56,16 @@ def _increment_login_limit(conn, key: str, maximum: int) -> bool:
 def _allow_login_attempt(conn, username: str, source_ip: str | None = None) -> bool:
     # A proxy-controlled client address must come from ASGI's trusted proxy
     # configuration, never an unvalidated X-Forwarded-For request header.
-    account_key = "account:" + hmac.new(
-        get_settings().session_signing_secret.encode(), username.encode(), hashlib.sha256
+    account_key = hmac.new(
+        get_settings().session_signing_secret.encode(), b"account\\n" + username.encode(), hashlib.sha256
     ).hexdigest()
     account_allowed = _increment_login_limit(conn, account_key, LOGIN_LIMIT)
     if source_ip is None:
         # Preserve the existing internal/CLI interface. Public routes must pass
         # a peer address; callers that cannot identify it are denied separately.
         return account_allowed
-    peer_key = "peer:" + hmac.new(
-        get_settings().session_signing_secret.encode(), source_ip.encode(), hashlib.sha256
+    peer_key = hmac.new(
+        get_settings().session_signing_secret.encode(), b"peer\\n" + source_ip.encode(), hashlib.sha256
     ).hexdigest()
     peer_allowed = _increment_login_limit(conn, peer_key, IP_LOGIN_LIMIT)
     return account_allowed and peer_allowed
