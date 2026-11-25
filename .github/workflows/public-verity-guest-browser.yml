@@ -22,7 +22,7 @@ jobs:
       - name: Install Chromium browser
         run: npx playwright install --with-deps chromium
         working-directory: frontend
-      - name: Exercise public guest tour over HTTPS
+      - name: Exercise live deployed no-login guest workspace over HTTPS
         env:
           E2E_BASE_URL: https://verity-api-staging.up.railway.app
         run: npm run test:e2e -- --grep "public reliability explainer"

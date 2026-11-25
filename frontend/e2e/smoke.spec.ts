@@ -3,7 +3,7 @@ import { test, expect } from "@playwright/test";
 test("borrower can create and evaluate a synthetic workflow, then ask grounded AI", async ({
   page,
 }) => {
-  await page.goto("/");
+  await page.goto("/?pilot=1");
   await expect(
     page.getByRole("heading", { name: "Welcome to Verity" }),
   ).toBeVisible();
@@ -38,7 +38,7 @@ test("borrower can create and evaluate a synthetic workflow, then ask grounded A
 });
 
 test("operator runs isolated safe and unsafe comparison", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/?pilot=1");
   await page.getByRole("button", { name: "Operator lab" }).click();
   await page.getByLabel("Password").fill("operator-demo");
   await page.getByRole("button", { name: /Enter workspace/ }).click();
@@ -61,7 +61,7 @@ test("explicit approval is consumed and operator worker confirms only a syntheti
   browser,
 }) => {
   const borrower = await browser.newPage();
-  await borrower.goto("/");
+  await borrower.goto("/?pilot=1");
   await borrower.getByRole("button", { name: "Borrower demo" }).click();
   await borrower.getByLabel("Password").fill("borrower-demo");
   await borrower.getByRole("button", { name: /Enter workspace/ }).click();
@@ -85,7 +85,7 @@ test("explicit approval is consumed and operator worker confirms only a syntheti
     borrower.getByText("Submitting", { exact: true }).first(),
   ).toBeVisible();
   const operator = await browser.newPage();
-  await operator.goto("/");
+  await operator.goto("/?pilot=1");
   await operator.getByRole("button", { name: "Operator lab" }).click();
   await operator.getByLabel("Password").fill("operator-demo");
   await operator.getByRole("button", { name: /Enter workspace/ }).click();
@@ -94,17 +94,20 @@ test("explicit approval is consumed and operator worker confirms only a syntheti
     .getByRole("button", { name: /Process next approved dispatch/ })
     .click();
   await expect(operator.getByText(/Dispatch worker result/)).toBeVisible();
-  await borrower.getByRole("button", { name: "Refresh workspace" }).click();
-  await expect(borrower.locator(".detail-heading .state-tag")).toContainText(
-    "Submitted",
-  );
+  // The independent worker may hold a lease when the operator invokes
+  // process-next. Re-read the authoritative state until it settles rather
+  // than asserting a single immediate UI refresh is final.
+  await expect.poll(async () => {
+    await borrower.getByRole("button", { name: "Refresh workspace" }).click();
+    return (await borrower.locator(".detail-heading .state-tag").innerText()).trim();
+  }, { timeout: 20000, intervals: [500, 1000, 2000] }).toContain("Submitted");
   await borrower.close();
   await operator.close();
 });
 
 test("borrower workspace remains navigable on mobile", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await page.goto("/?pilot=1");
   await page.getByRole("button", { name: "Borrower demo" }).click();
   await page.getByLabel("Password").fill("borrower-demo");
   await page.getByRole("button", { name: /Enter workspace/ }).click();
