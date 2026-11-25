@@ -17,6 +17,7 @@ This checkpoint enforces the boundary in code:
 - Dedicated unit regressions verify these refusals happen **before**
   connecting to the database.
 - Existing local-only demonstration flows remain supported.
+- The development Compose stack publishes API and PostgreSQL ports on `127.0.0.1` only, and a CI check rejects Internet-facing Compose port bindings.
 
 ## What this does NOT deliver
 
