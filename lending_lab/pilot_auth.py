@@ -22,6 +22,7 @@ from lending_lab.schemas import Role
 AUDIENCE = "verity-pilot-v1"
 LOGIN_LIMIT = 8
 LOGIN_WINDOW_MINUTES = 15
+IP_LOGIN_LIMIT = 40  # A separate ceiling across usernames from one observed peer.
 _DUMMY_PASSWORD_DIGEST = hash_demo_password("unprovisioned", "invalid-pilot-password")
 
 
@@ -30,10 +31,12 @@ def _username(value: str) -> str:
     return value.strip().lower()
 
 
-def _allow_login_attempt(conn, username: str) -> bool:
-    # One atomic upsert across API workers prevents independent rate-limit
-    # counters on every instance. External IP-based throttling is still needed.
-    key = hashlib.sha256(username.encode("utf-8")).hexdigest()
+def _increment_login_limit(conn, key: str, maximum: int) -> bool:
+    """Atomic, cross-replica 15-minute admission counter.
+
+    The existing pilot_login_limits table is reused for source-peer buckets,
+    with separate keyed namespaces. No plaintext IP address is persisted.
+    """
     row = conn.execute(
         """INSERT INTO pilot_login_limits(username_hash,attempts,window_started)
            VALUES (%s,1,now())
@@ -47,8 +50,25 @@ def _allow_login_attempt(conn, username: str) -> bool:
            RETURNING attempts""",
         (key,),
     ).fetchone()
-    return row["attempts"] <= LOGIN_LIMIT
+    return row["attempts"] <= maximum
 
+
+def _allow_login_attempt(conn, username: str, source_ip: str | None = None) -> bool:
+    # A proxy-controlled client address must come from ASGI's trusted proxy
+    # configuration, never an unvalidated X-Forwarded-For request header.
+    account_key = "account:" + hmac.new(
+        get_settings().session_signing_secret.encode(), username.encode(), hashlib.sha256
+    ).hexdigest()
+    account_allowed = _increment_login_limit(conn, account_key, LOGIN_LIMIT)
+    if source_ip is None:
+        # Preserve the existing internal/CLI interface. Public routes must pass
+        # a peer address; callers that cannot identify it are denied separately.
+        return account_allowed
+    peer_key = "peer:" + hmac.new(
+        get_settings().session_signing_secret.encode(), source_ip.encode(), hashlib.sha256
+    ).hexdigest()
+    peer_allowed = _increment_login_limit(conn, peer_key, IP_LOGIN_LIMIT)
+    return account_allowed and peer_allowed
 
 def issue_pilot_session(account) -> tuple[str, dict]:
     now = system_clock.unix_seconds()
@@ -70,15 +90,17 @@ def issue_pilot_session(account) -> tuple[str, dict]:
     return f"{body}.{_b64(signature)}", claims
 
 
-def authenticate_pilot(username: str, password: str) -> tuple[str, dict]:
+def authenticate_pilot(username: str, password: str, source_ip: str | None = None) -> tuple[str, dict]:
     if get_settings().app_mode != "production":
         raise HTTPException(status_code=404, detail="Pilot authentication is unavailable")
     username = _username(username)
+    if not source_ip:
+        raise HTTPException(status_code=503, detail="Login temporarily unavailable")
     # Never log the username, password, or token.
     # Commit the failed-attempt counter *before* password verification:
     # an exception from invalid credentials must not roll back the limit.
     with transaction() as limiter_conn:
-        allowed = _allow_login_attempt(limiter_conn, username)
+        allowed = _allow_login_attempt(limiter_conn, username, source_ip)
     if not allowed:
         raise HTTPException(status_code=429, detail="Too many login attempts; try again later")
     with transaction() as conn:
