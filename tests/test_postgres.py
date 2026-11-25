@@ -158,7 +158,13 @@ def test_migrations_and_seed_are_reproducible(owner_db):
     with owner_db.cursor() as cur:
         after = cur.execute("SELECT count(*) AS n FROM borrower_profiles").fetchone()["n"]
         migrations = cur.execute("SELECT count(*) AS n FROM schema_migrations").fetchone()["n"]
-    assert before == after == 2
+    # Independently provisioned pilot profiles may exist if other integration
+    # tests ran first. Replaying migrations must not change that count.
+    assert before == after
+    seeded = owner_db.execute(
+        "SELECT count(*) AS n FROM borrower_profiles WHERE id IN ('borrower-001','borrower-002')"
+    ).fetchone()["n"]
+    assert seeded == 2
     assert migrations == 8
 
 
