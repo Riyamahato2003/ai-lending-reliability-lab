@@ -54,21 +54,22 @@ def _increment_login_limit(conn, key: str, maximum: int) -> bool:
 
 
 def _allow_login_attempt(conn, username: str, source_ip: str | None = None) -> bool:
-    # A proxy-controlled client address must come from ASGI's trusted proxy
-    # configuration, never an unvalidated X-Forwarded-For request header.
+    # Account and peer identities are domain-separated within the HMAC input;
+    # the existing database constraint requires exactly 64 hex characters.
+    if source_ip is not None:
+        peer_key = hmac.new(
+            get_settings().session_signing_secret.encode(),
+            b"peer:" + source_ip.encode(), hashlib.sha256
+        ).hexdigest()
+        # Check the coarse peer budget before creating one account bucket for
+        # every guessed username. This caps account-key growth from one peer.
+        if not _increment_login_limit(conn, peer_key, IP_LOGIN_LIMIT):
+            return False
     account_key = hmac.new(
-        get_settings().session_signing_secret.encode(), b"account:" + username.encode(), hashlib.sha256
+        get_settings().session_signing_secret.encode(),
+        b"account:" + username.encode(), hashlib.sha256
     ).hexdigest()
-    account_allowed = _increment_login_limit(conn, account_key, LOGIN_LIMIT)
-    if source_ip is None:
-        # Preserve the existing internal/CLI interface. Public routes must pass
-        # a peer address; callers that cannot identify it are denied separately.
-        return account_allowed
-    peer_key = hmac.new(
-        get_settings().session_signing_secret.encode(), b"peer:" + source_ip.encode(), hashlib.sha256
-    ).hexdigest()
-    peer_allowed = _increment_login_limit(conn, peer_key, IP_LOGIN_LIMIT)
-    return account_allowed and peer_allowed
+    return _increment_login_limit(conn, account_key, LOGIN_LIMIT)
 
 def issue_pilot_session(account) -> tuple[str, dict]:
     now = system_clock.unix_seconds()
