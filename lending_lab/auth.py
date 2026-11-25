@@ -38,6 +38,10 @@ class Principal:
 
 
 def verify_session(token: str, clock: Clock = system_clock) -> Principal:
+    # Existing signed sessions are for local demonstration only. Do not admit
+    # seeded demo identities in any internet-facing environment.
+    if get_settings().app_mode != "local_demo":
+        raise HTTPException(status_code=401, detail="Demo authentication is disabled")
     try:
         body, supplied = token.split(".", 1)
         expected = _b64(hmac.new(get_settings().session_signing_secret.encode(), body.encode(), hashlib.sha256).digest())
