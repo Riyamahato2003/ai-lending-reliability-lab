@@ -8,11 +8,12 @@ import os
 import uuid
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
+from urllib.parse import urlparse
 
 from lending_lab.config import get_settings
 from lending_lab.pilot_admin import create_account, disable_account
 
-BASE = "http://api:8000"
+BASE = os.getenv("STAGING_API_BASE", "http://api:8000").rstrip("/")
 
 
 def check(path: str, *, method: str = "GET", payload: dict | None = None,
@@ -35,6 +36,12 @@ def check(path: str, *, method: str = "GET", payload: dict | None = None,
 def main() -> None:
     if os.getenv("STAGING_SMOKE_ENABLE") != "1":
         raise SystemExit("Refusing to provision a staging smoke account without explicit opt-in")
+    target = urlparse(BASE)
+    # Never run privileged synthetic-account provisioning against a public host.
+    if target.scheme != "http" or target.hostname not in ("api", "127.0.0.1", "localhost") and not (
+        target.hostname and target.hostname.endswith(".railway.internal")
+    ):
+        raise SystemExit("Smoke target must be a private in-project API endpoint")
     settings = get_settings()
     settings.validate_startup()
     if settings.app_mode != "production" or settings.ai_mode != "deterministic":
