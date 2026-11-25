@@ -35,6 +35,8 @@ jobs:
         run: docker compose --env-file .env.staging.ci -f docker-compose.staging.yml up -d --no-build db migrate api worker
       - name: Run isolated pilot-authentication smoke
         run: docker compose --env-file .env.staging.ci -f docker-compose.staging.yml --profile smoke run --rm smoke
+      - name: Verify credential-free private health probe
+        run: docker compose --env-file .env.staging.ci -f docker-compose.staging.yml --profile smoke run --rm smoke python -m lending_lab.internal_probe
       - name: Verify disposable PostgreSQL backup and restore
         shell: bash
         run: |
