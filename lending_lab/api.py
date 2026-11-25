@@ -53,19 +53,16 @@ _lab_run_slot = threading.BoundedSemaphore(1)
 
 
 class LabRequestSizeLimit:
-    """Buffer at most 16 KiB for bounded state-changing experiment requests."""
+    """Buffer at most 16 KiB for all state-changing JSON requests."""
 
     def __init__(self, application, max_bytes: int):
         self.application = application
         self.max_bytes = max_bytes
 
     async def __call__(self, scope, receive, send):
-        path = scope.get("path", "")
-        bounded_paths = {"/operator/lab/runs", "/operator/lab/compare",
-                         "/assistant/consent", "/pilot/sessions", "/demo/sessions"}
-        is_explain = path.startswith("/workflows/") and path.endswith("/assistant/explain")
-        if scope.get("type") != "http" or scope.get("method") != "POST" or \
-                (path not in bounded_paths and not is_explain):
+        # All JSON mutation endpoints must be bounded, not just lab routes.
+        # This protects borrower workflow creation, consent and approval too.
+        if scope.get("type") != "http" or scope.get("method") not in {"POST", "PUT", "PATCH"}:
             await self.application(scope, receive, send)
             return
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
