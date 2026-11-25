@@ -12,7 +12,7 @@ from lending_lab.config import get_settings
 from lending_lab.credentials import hash_demo_password
 from lending_lab.db import connect_migrator
 
-EMAIL = re.compile(r"^[a-z0-9][a-z0-9._+%-]{0,62}@[a-z0-9.-]+\\.[a-z]{2,}$")
+EMAIL = re.compile(r"^[a-z0-9][a-z0-9._+%-]{0,62}@[a-z0-9.-]+\.[a-z]{2,}$")
 
 
 def normalized_username(raw: str) -> str:
