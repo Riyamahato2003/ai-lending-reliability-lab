@@ -190,3 +190,75 @@ def test_production_settings_ignore_unreachable_demo_passwords():
         demo_operator_password="operator-demo",
     )
     s.validate_startup()
+
+
+def test_login_rate_limiter_has_separate_peer_budget(monkeypatch, db):
+    """One source cannot fan out unlimited guesses across distinct accounts."""
+    from lending_lab.db import transaction
+    from lending_lab.pilot_auth import _allow_login_attempt, IP_LOGIN_LIMIT
+
+    monkeypatch.setattr(
+        "lending_lab.pilot_auth.get_settings",
+        lambda: SimpleNamespace(session_signing_secret="test-peer-hmac-secret-32-bytes-minimum"),
+    )
+    origin = "198.51.100.24"
+    for attempt in range(IP_LOGIN_LIMIT):
+        with transaction() as conn:
+            assert _allow_login_attempt(conn, unique_email(f"fanout-{attempt}"), origin)
+    with transaction() as conn:
+        count_before = conn.execute("SELECT COUNT(*) AS count FROM pilot_login_limits").fetchone()["count"]
+        assert not _allow_login_attempt(conn, unique_email("blocked"), origin)
+        count_after = conn.execute("SELECT COUNT(*) AS count FROM pilot_login_limits").fetchone()["count"]
+    assert count_after == count_before  # No new account key after peer cap
+    with transaction() as conn:
+        assert _allow_login_attempt(conn, unique_email("other-peer"), "198.51.100.25")
+
+
+def test_login_rejects_missing_peer_identity(client_in_pilot_mode, monkeypatch):
+    """An ingress with no verified peer must not silently bypass throttling."""
+    from fastapi import HTTPException
+    from lending_lab.pilot_auth import authenticate_pilot
+    with pytest.raises(HTTPException) as exc:
+        authenticate_pilot(unique_email("no-peer"), "not-a-password", source_ip=None)
+    assert exc.value.status_code == 503
+
+
+def test_forwarded_for_header_is_not_trusted_for_login_peer(client_in_pilot_mode, monkeypatch):
+    """Client-supplied forwarding headers must not bypass the per-peer limit."""
+    observed = []
+
+    def deny_login(username, password, source_ip=None):
+        observed.append(source_ip)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    monkeypatch.setattr("lending_lab.api.authenticate_pilot", deny_login)
+    response = client_in_pilot_mode.post(
+        "/pilot/sessions",
+        json={"username": unique_email("spoof"), "password": "invalid"},
+        headers={"X-Forwarded-For": "8.8.8.8"},
+    )
+    assert response.status_code == 401
+    assert observed == ["testclient"]
+
+
+def test_railway_edge_mode_requires_one_valid_client_ip(monkeypatch):
+    """The opt-in public ingress mode rejects missing/ambiguous IP headers."""
+    from fastapi import Request
+    from lending_lab.api import _pilot_login_peer
+
+    monkeypatch.setattr(
+        "lending_lab.api.get_settings",
+        lambda: SimpleNamespace(trust_railway_edge_client_ip=True),
+    )
+
+    def request(headers):
+        return Request({"type": "http", "method": "POST", "path": "/pilot/sessions",
+                        "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+                        "client": ("10.0.0.2", 5555), "scheme": "http"})
+
+    assert _pilot_login_peer(request({"X-Real-IP": "198.51.100.8"})) == "198.51.100.8"
+    assert _pilot_login_peer(request({"X-Real-IP": "2001:db8::1"})) == "2001:db8::1"
+    assert _pilot_login_peer(request({"X-Real-IP": "1.2.3.4, 5.6.7.8"})) is None
+    assert _pilot_login_peer(request({"X-Real-IP": "invalid"})) is None
+    assert _pilot_login_peer(request({})) is None
