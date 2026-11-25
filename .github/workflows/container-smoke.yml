@@ -16,6 +16,25 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v4
 
+      - name: Assert local-only port bindings
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json
+          import subprocess
+          cfg = json.loads(subprocess.check_output(
+              ["docker", "compose", "config", "--format", "json"], text=True
+          ))
+          for service_name in ("api", "db"):
+              ports = cfg["services"][service_name].get("ports", [])
+              assert ports, f"{service_name} should expose a local development port"
+              for port in ports:
+                  assert port.get("host_ip") == "127.0.0.1", (
+                      f"{service_name} must not publish an Internet-facing port: {port}"
+                  )
+          print("Local-only API and database port binding verified")
+          PY
+
       - name: Build images
         run: docker compose build --pull
 
