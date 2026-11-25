@@ -139,6 +139,10 @@ def health():
 
 @app.post("/demo/sessions", response_model=SessionResponse)
 def create_session(body: SessionRequest, request: Request):
+    # This endpoint is exclusively for synthetic, local developer identities.
+    # Production must not authenticate through seeded demo credentials.
+    if get_settings().app_mode != "local_demo":
+        raise HTTPException(status_code=404, detail="Demo sign-in is unavailable")
     with connect() as conn:
         user = conn.execute("SELECT username,password_digest,role,borrower_id FROM demo_users WHERE username=%s", (body.username,)).fetchone()
     if not user or not verify_demo_password(body.username, body.password, user["password_digest"]):
