@@ -1,5 +1,6 @@
 import logging
 import threading
+import asyncio
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -12,6 +13,7 @@ from lending_lab.auth import Principal, get_principal, require_borrower, require
 from lending_lab.credentials import verify_demo_password
 from lending_lab.config import get_settings
 from lending_lab.pilot_auth import authenticate_pilot, revoke_pilot_session
+from lending_lab.readiness import check_schema_ready, wait_for_schema
 from lending_lab.db import append_audit_event, append_security_event, connect, transaction, run_transaction_with_retry
 from lending_lab.approvals import create_approval, consume_approval
 from lending_lab.dispatch import list_reconciliation_conflicts, record_operator_resolution
@@ -41,6 +43,7 @@ logger = logging.getLogger("lending_lab")
 @asynccontextmanager
 async def lifespan(_app):
     get_settings().validate_startup()
+    await asyncio.to_thread(wait_for_schema)
     yield
 
 
@@ -104,6 +107,20 @@ class LabRequestSizeLimit:
 app.add_middleware(LabRequestSizeLimit, max_bytes=LAB_REQUEST_MAX_BYTES)
 
 
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
+    if request.url.path.startswith(("/pilot/", "/demo/", "/auth/", "/workflows",
+                                   "/operator/", "/assistant/")):
+        response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+
 def _log_cross_borrower_attempt(workflow_id: str, borrower_id: str, actor: Principal,
                                 correlation_id: str, route_name: str) -> bool:
     with connect() as conn:
@@ -136,6 +153,15 @@ def health():
         return {"status": "ok", "database": "connected", "mode": "synthetic-demo"}
     except Exception:
         raise HTTPException(status_code=503, detail="Database unavailable")
+
+
+@app.get("/ready")
+def ready():
+    try:
+        check_schema_ready()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Application schema not ready")
+    return {"status": "ready"}
 
 
 @app.get("/auth/capabilities")
