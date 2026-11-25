@@ -40,7 +40,7 @@ test("public reliability explainer opens the complete no-login guest workspace",
 });
 
 test("pilot sign-in stays isolated at its explicit private entry path", async ({ page }) => {
-  await page.goto("/pilot");
+  await page.goto("/?pilot=1");
   await expect(page.getByRole("heading", { name: "Welcome to Verity" })).toBeVisible();
   await expect(page.getByLabel("Password")).toBeVisible();
 });
