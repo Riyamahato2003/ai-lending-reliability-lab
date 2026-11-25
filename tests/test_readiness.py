@@ -41,7 +41,8 @@ def test_ready_returns_503_when_schema_missing(monkeypatch):
 def test_worker_readiness_times_out_without_logging_secrets(monkeypatch):
     monkeypatch.setattr(readiness, "check_schema_ready",
                         lambda: (_ for _ in ()).throw(RuntimeError("secret database URL")))
-    monkeypatch.setattr(readiness.time, "monotonic", lambda: 100.0)
+    moments = iter([100.0, 101.0])
+    monkeypatch.setattr(readiness.time, "monotonic", lambda: next(moments))
     with pytest.raises(RuntimeError, match="database schema readiness timeout"):
         readiness.wait_for_schema(timeout_seconds=0.1, interval_seconds=0.05)
 
