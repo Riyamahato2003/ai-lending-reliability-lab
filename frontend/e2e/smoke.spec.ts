@@ -94,10 +94,13 @@ test("explicit approval is consumed and operator worker confirms only a syntheti
     .getByRole("button", { name: /Process next approved dispatch/ })
     .click();
   await expect(operator.getByText(/Dispatch worker result/)).toBeVisible();
-  await borrower.getByRole("button", { name: "Refresh workspace" }).click();
-  await expect(borrower.locator(".detail-heading .state-tag")).toContainText(
-    "Submitted",
-  );
+  // The independent worker may hold a lease when the operator invokes
+  // process-next. Re-read the authoritative state until it settles rather
+  // than asserting a single immediate UI refresh is final.
+  await expect.poll(async () => {
+    await borrower.getByRole("button", { name: "Refresh workspace" }).click();
+    return (await borrower.locator(".detail-heading .state-tag").innerText()).trim();
+  }, { timeout: 20000, intervals: [500, 1000, 2000] }).toContain("Submitted");
   await borrower.close();
   await operator.close();
 });
