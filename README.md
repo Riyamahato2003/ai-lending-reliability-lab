@@ -6,6 +6,25 @@ An original engineering demonstration of reliable workflow patterns using synthe
 
 Implemented here: FastAPI/Pydantic service, real PostgreSQL migrations and synthetic fixtures, distinct migration-owner/runtime/lab database roles, signed revocable demo sessions, borrower ownership checks, immutable security events, versioned deterministic rules, lender-specific outbound field allowlists, a persistent simulator ledger, ordered hash-chained audit, `submission_unknown` recovery, single-use HMAC-bound approvals, write-ahead dispatch, lease recovery, consent revocation and synthetic-data deletion, a deterministic operator-only Reliability Lab with safe/unsafe runs, and an evidence-grounded read-only explanation assistant. Gemini is optional and not required by CI. A responsive React + TypeScript browser application is implemented and served through FastAPI. Simulated ledger records do not establish exactly-once effects against an independent remote service. See [PLAN.md](PLAN.md) and the checkpoint verification reports.
 
+## Public synthetic walkthrough (Checkpoint 6G)
+
+**Hosted staging:** [Open Verity](https://verity-api-staging.up.railway.app)
+
+The hosted React interface includes a **credential-free, read-only walkthrough**
+of two simulated reliability failure scenarios. On the sign-in screen, choose
+**Explore the public reliability walkthrough**. It requires no account, sends
+no borrower inputs, and executes no lending API writes. This public explainer
+is not a substitute for the real authenticated workflow, and the scenarios
+are educational examples rather than live reliability measurements.
+
+The interactive borrower and operator workspaces are separately provisioned,
+invitation-only synthetic pilots. There is **no public signup** or real lender
+integration. Never submit actual personal or financial information. Public
+HTTP reachability and healthy staging do **not** imply a production security
+review, financial eligibility approval, regulated lending capability, or
+end-to-end hosted pilot acceptance. Release and test limitations are in
+[Checkpoint 6G's release record](docs/checkpoint-6g-public-pilot-release.md).
+
 ## Explore the finished Verity demo (Checkpoint 5)
 
 The browser app provides borrower application creation, purpose-specific lending consent, deterministic eligibility and lender comparison, explicit single-use approval, simulator-ledger status, audit timeline, read-only grounded assistant, optional independent AI-processing consent, and an operator-only Reliability Lab. All values and effects are synthetic.
