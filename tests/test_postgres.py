@@ -165,7 +165,9 @@ def test_migrations_and_seed_are_reproducible(owner_db):
         "SELECT count(*) AS n FROM borrower_profiles WHERE id IN ('borrower-001','borrower-002')"
     ).fetchone()["n"]
     assert seeded == 2
-    assert migrations == 8
+    from pathlib import Path
+    expected = len(list((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql")))
+    assert migrations == expected
 
 
 def test_postgres_step_claim_and_lease_token(db):
