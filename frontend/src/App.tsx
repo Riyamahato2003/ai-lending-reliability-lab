@@ -173,21 +173,42 @@ function Empty({
     </div>
   );
 }
-function Login({ onLogin }: { onLogin: (s: Session) => void }) {
-  const [username, setUsername] = useState("borrower-001"),
-    [password, setPassword] = useState("borrower-demo"),
+type LoginMode = "demo" | "pilot";
+
+function Login({ onLogin }: { onLogin: (s: Session, mode: LoginMode) => void }) {
+  const [username, setUsername] = useState(""),
+    [password, setPassword] = useState(""),
     [pending, setPending] = useState(false),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [modeError, setModeError] = useState(""),
+    [mode, setMode] = useState<LoginMode | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void api<{ login_mode: LoginMode }>("/auth/capabilities")
+      .then((result) => {
+        if (cancelled) return;
+        if (result.login_mode !== "demo" && result.login_mode !== "pilot") {
+          throw new Error("Unsupported authentication mode");
+        }
+        setMode(result.login_mode);
+      })
+      .catch(() => {
+        if (!cancelled) setModeError("Cannot verify the sign-in environment. Please try again later.");
+      });
+    return () => { cancelled = true; };
+  }, []);
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (!mode) return;
     setPending(true);
     setError("");
     try {
       onLogin(
-        await api<Session>("/demo/sessions", undefined, "POST", {
-          username,
-          password,
-        }),
+        await api<Session>(mode === "pilot" ? "/pilot/sessions" : "/demo/sessions",
+          undefined, "POST", { username, password }),
+        mode,
       );
     } catch (err) {
       setError((err as Error).message);
@@ -232,7 +253,7 @@ function Login({ onLogin }: { onLogin: (s: Session) => void }) {
           </div>
         </div>
         <div className="aside-bottom">
-          THE AI LENDING RELIABILITY LAB <span>2026 / DEMO</span>
+          THE AI LENDING RELIABILITY LAB <span>2026 / SYNTHETIC</span>
         </div>
         <div className="orb orb-one" />
         <div className="orb orb-two" />
@@ -242,15 +263,16 @@ function Login({ onLogin }: { onLogin: (s: Session) => void }) {
           <span className="eyebrow">WORKSPACE ACCESS</span>
           <h2>Welcome to Verity</h2>
           <p className="muted">
-            Sign in to explore the complete synthetic lending workflow and
-            operator experiment lab.
+            {mode === "pilot"
+              ? "This pilot is invitation-only. Use your separately issued credentials to explore synthetic lending workflows."
+              : "Sign in to explore the synthetic lending workflow and operator experiment lab."}
           </p>
-          <div className="demo-switch">
+          {mode === "demo" && <div className="demo-switch">
             <button
               className={username === "borrower-001" ? "selected" : ""}
               onClick={() => {
                 setUsername("borrower-001");
-                setPassword("borrower-demo");
+                setPassword("");
               }}
             >
               Borrower demo
@@ -259,15 +281,15 @@ function Login({ onLogin }: { onLogin: (s: Session) => void }) {
               className={username === "lab-operator" ? "selected" : ""}
               onClick={() => {
                 setUsername("lab-operator");
-                setPassword("operator-demo");
+                setPassword("");
               }}
             >
               Operator lab
             </button>
-          </div>
+          </div>}
           <form onSubmit={submit}>
             <label>
-              Demo username
+              {mode === "pilot" ? "Email" : "Demo username"}
               <input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -276,7 +298,7 @@ function Login({ onLogin }: { onLogin: (s: Session) => void }) {
               />
             </label>
             <label>
-              Demo password
+              Password
               <input
                 type="password"
                 value={password}
@@ -285,13 +307,13 @@ function Login({ onLogin }: { onLogin: (s: Session) => void }) {
                 required
               />
             </label>
-            {error && (
+            {(error || modeError) && (
               <div className="inline-error">
                 <CircleAlert size={16} />
-                {error}
+                {error || modeError}
               </div>
             )}
-            <Button type="submit" disabled={pending} className="full">
+            <Button type="submit" disabled={pending || mode === null} className="full">
               {pending ? (
                 "Signing in…"
               ) : (
@@ -316,6 +338,7 @@ function Login({ onLogin }: { onLogin: (s: Session) => void }) {
 
 export default function App() {
   const [session, setSession] = useState<Session | null>(null),
+    [loginMode, setLoginMode] = useState<LoginMode | null>(null),
     [page, setPage] = useState<Page>("overview"),
     [workflows, setWorkflows] = useState<Workflow[]>([]),
     [selected, setSelected] = useState<string | null>(null),
@@ -354,9 +377,10 @@ export default function App() {
   }
   async function logout() {
     try {
-      await api("/demo/sessions/logout", token, "POST");
+      await api(loginMode === "pilot" ? "/pilot/sessions/logout" : "/demo/sessions/logout", token, "POST");
     } catch {}
     setSession(null);
+    setLoginMode(null);
     setSelected(null);
     setWorkflows([]);
     setToast(null);
@@ -365,7 +389,7 @@ export default function App() {
   const navItems = operator
     ? NAV.filter((x) => x[0] === "overview" || x[0] === "laboratory")
     : NAV;
-  if (!session) return <Login onLogin={setSession} />;
+  if (!session) return <Login onLogin={(s, mode) => { setSession(s); setLoginMode(mode); }} />;
   return (
     <div className="app-shell">
       <aside className={`sidebar ${mobileNav ? "open" : ""}`}>
@@ -394,7 +418,7 @@ export default function App() {
             </span>
             <div>
               <strong>Reliability Lab</strong>
-              <small>Local synthetic environment</small>
+              <small>{loginMode === "pilot" ? "Invitation-only synthetic pilot" : "Local synthetic environment"}</small>
             </div>
           </div>
           <div className="navigation-label">EXPLORE</div>
