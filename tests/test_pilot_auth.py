@@ -69,6 +69,37 @@ def test_individual_accounts_have_distinct_borrower_bindings(client_in_pilot_mod
     }).json() == []
 
 
+def test_pilot_users_cannot_read_each_others_workflows(client_in_pilot_mode):
+    client = client_in_pilot_mode
+    first_email, second_email = unique_email("owner"), unique_email("other")
+    first_password = create_account(first_email, "borrower")
+    second_password = create_account(second_email, "borrower")
+    first_login = log_in(client, first_email, first_password)
+    second_login = log_in(client, second_email, second_password)
+    assert first_login.status_code == second_login.status_code == 200
+    one = {"Authorization": "Bearer " + first_login.json()["access_token"]}
+    two = {"Authorization": "Bearer " + second_login.json()["access_token"]}
+    purpose = "illustrative_offer_comparison"
+    consent = client.get("/consent-text/" + purpose, headers=one)
+    assert consent.status_code == 200
+    created = client.post("/workflows", headers=one, json={
+        "purpose": purpose,
+        "consent_text": consent.json()["consent_text"],
+        "financial_details": {
+            "monthly_income_minor": 420000,
+            "monthly_debt_minor": 80000,
+            "requested_amount_minor": 2400000,
+            "term_months": 24,
+            "employment_months": 36,
+            "region": "synthetic-west"
+        }
+    })
+    assert created.status_code == 200, created.text
+    workflow_id = created.json()["id"]
+    assert client.get("/workflows/" + workflow_id, headers=one).status_code == 200
+    assert client.get("/workflows/" + workflow_id, headers=two).status_code == 404
+
+
 def test_operator_does_not_inherit_borrower_privileges(client_in_pilot_mode):
     client = client_in_pilot_mode
     email = unique_email("operator")
