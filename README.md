@@ -6,19 +6,28 @@ An original engineering demonstration of reliable workflow patterns using synthe
 
 Implemented here: FastAPI/Pydantic service, real PostgreSQL migrations and synthetic fixtures, distinct migration-owner/runtime/lab database roles, signed revocable demo sessions, borrower ownership checks, immutable security events, versioned deterministic rules, lender-specific outbound field allowlists, a persistent simulator ledger, ordered hash-chained audit, `submission_unknown` recovery, single-use HMAC-bound approvals, write-ahead dispatch, lease recovery, consent revocation and synthetic-data deletion, a deterministic operator-only Reliability Lab with safe/unsafe runs, and an evidence-grounded read-only explanation assistant. Gemini is optional and not required by CI. A responsive React + TypeScript browser application is implemented and served through FastAPI. Simulated ledger records do not establish exactly-once effects against an independent remote service. See [PLAN.md](PLAN.md) and the checkpoint verification reports.
 
-## Public synthetic walkthrough (Checkpoint 6G)
+## Public interactive sandbox (Checkpoint 6H)
 
-**Hosted staging:** [Open Verity](https://verity-api-staging.up.railway.app)
+**Open Verity directly:** [Public sandbox](https://verity-api-staging.up.railway.app)
 
-The hosted React interface now **opens directly into a credential-free public workspace**.\nVisitors can create fictional applications, compare illustrative lenders, issue a\nsimulated approval, inject missing/duplicate confirmations, reconcile effects,\ninspect a local evidence timeline, ask deterministic explanation questions,\nand run guarded-versus-unsafe laboratory examples. **All guest state is\nin-memory in the visitor's browser tab**: no account, no shared database\nrecords, no protected lending API writes, and no live lender or AI service.\nReloading or pressing Reset clears the demo. This is a functional educational\nsandbox, not the database-backed workflow or a production lender.
+The homepage opens the public workspace without any email, password or signup.
+Visitors can create fictional applications, compare three illustrative lender offers,
+approve a simulated request, deliberately lose its acknowledgement, reconcile the
+original simulated effect, ask evidence-style explanation questions and run
+safe-versus-unsafe reliability experiments.
 
-The interactive borrower and operator workspaces are separately provisioned,
-invitation-only synthetic pilots. There is **no public signup** or real lender
-integration. Never submit actual personal or financial information. Public
-HTTP reachability and healthy staging do **not** imply a production security
-review, financial eligibility approval, regulated lending capability, or
-end-to-end hosted pilot acceptance. Release and test limitations are in
-[Checkpoint 6G's release record](docs/checkpoint-6g-public-pilot-release.md).
+**Public guest data lives in memory in each visitor's browser tab.**
+The guest experience does not create shared borrower records or submit
+authenticated backend API writes. Reloading the page or pressing Reset clears
+all guest work. It makes no real lender submissions, credit decisions, or
+external AI calls. This functional teaching simulator does **not** replicate
+the durable PostgreSQL guarantees of the protected pilot.
+
+The original database-backed borrower and operator workflows remain
+invitation-only at `/?pilot=1`. They retain their existing authentication
+and ownership protections; there is no public account registration.
+Never submit actual personal or financial information. Live HTTP availability
+does not imply regulated production readiness or completion of a security review.
 
 ## Explore the finished Verity demo (Checkpoint 5)
 
