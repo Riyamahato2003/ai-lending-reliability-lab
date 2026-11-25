@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     approval_hmac_key_version: str = "demo-v1"
     privacy_hmac_secret: str = "local-only-privacy-hmac-key-change-before-use"
     privacy_hmac_key_version: str = "privacy-demo-v1"
+    trust_railway_edge_client_ip: bool = False
     ai_mode: str = "deterministic"
     gemini_api_key: str | None = None
     gemini_model: str | None = None
