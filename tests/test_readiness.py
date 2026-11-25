@@ -57,3 +57,14 @@ def test_worker_readiness_returns_after_transient_failure(monkeypatch):
     monkeypatch.setattr(readiness.time, "sleep", lambda _: None)
     readiness.wait_for_schema(timeout_seconds=2.0, interval_seconds=0.1)
     assert calls == ["attempt", "attempt"]
+
+
+def test_mutation_requests_have_global_16k_limit():
+    # A large unauthenticated mutation is stopped before parsing or DB access.
+    response = TestClient(app).post(
+        "/workflows",
+        content=b"x" * 16_385,
+        headers={"content-type": "application/json"},
+    )
+    assert response.status_code == 413
+    assert response.json()["detail"] == "Request exceeds 16 KiB"
