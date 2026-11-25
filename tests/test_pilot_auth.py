@@ -237,3 +237,25 @@ def test_forwarded_for_header_is_not_trusted_for_login_peer(client_in_pilot_mode
     )
     assert response.status_code == 401
     assert observed == ["testclient"]
+
+
+def test_railway_edge_mode_requires_one_valid_client_ip(monkeypatch):
+    """The opt-in public ingress mode rejects missing/ambiguous IP headers."""
+    from fastapi import Request
+    from lending_lab.api import _pilot_login_peer
+
+    monkeypatch.setattr(
+        "lending_lab.api.get_settings",
+        lambda: SimpleNamespace(trust_railway_edge_client_ip=True),
+    )
+
+    def request(headers):
+        return Request({"type": "http", "method": "POST", "path": "/pilot/sessions",
+                        "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+                        "client": ("10.0.0.2", 5555), "scheme": "http"})
+
+    assert _pilot_login_peer(request({"X-Real-IP": "198.51.100.8"})) == "198.51.100.8"
+    assert _pilot_login_peer(request({"X-Real-IP": "2001:db8::1"})) == "2001:db8::1"
+    assert _pilot_login_peer(request({"X-Real-IP": "1.2.3.4, 5.6.7.8"})) is None
+    assert _pilot_login_peer(request({"X-Real-IP": "invalid"})) is None
+    assert _pilot_login_peer(request({})) is None
