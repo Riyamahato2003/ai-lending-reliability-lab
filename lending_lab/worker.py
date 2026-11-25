@@ -4,11 +4,13 @@ import argparse
 import time
 
 from lending_lab.config import get_settings
+from lending_lab.readiness import wait_for_schema
 from lending_lab.dispatch import recover_interrupted_workflows, run_dispatch_worker_once
 
 
 def main() -> None:
     get_settings().validate_startup()
+    wait_for_schema()
     parser = argparse.ArgumentParser()
     parser.add_argument("--once", action="store_true", help="process at most one queued submission")
     parser.add_argument("--recover", action="store_true", help="recover evaluating and queued/expired submissions")

@@ -59,7 +59,33 @@ jobs:
           fi
           curl -fsS --max-time 5 http://127.0.0.1:8000/ -o /tmp/verity-index.html
           grep -qi '<html' /tmp/verity-index.html
-          echo "Container, database, and frontend smoke check passed"
+          # This must fail if the migrator accidentally boots in production mode
+          # and skips local synthetic demo-account seeding.
+          login_status="$(curl -sS --max-time 10 -o /dev/null -w '%{http_code}' \
+            -H 'Content-Type: application/json' \
+            --data '{"username":"borrower-001","password":"borrower-demo"}' \
+            http://127.0.0.1:8000/demo/sessions)"
+          test "$login_status" = "200"
+          echo "Container, database, frontend and synthetic demo login passed"
+
+      - name: Set up Node for browser regression
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install browser test dependencies
+        run: npm ci
+        working-directory: frontend
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run four synthetic browser journeys
+        run: npm run test:e2e -- --workers=1
+        working-directory: frontend
 
       - name: Inspect container status
         if: always()

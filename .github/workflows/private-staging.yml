@@ -35,6 +35,25 @@ jobs:
         run: docker compose --env-file .env.staging.ci -f docker-compose.staging.yml up -d --no-build db migrate api worker
       - name: Run isolated pilot-authentication smoke
         run: docker compose --env-file .env.staging.ci -f docker-compose.staging.yml --profile smoke run --rm smoke
+      - name: Verify credential-free private health probe
+        run: docker compose --env-file .env.staging.ci -f docker-compose.staging.yml --profile smoke run --rm smoke python -m lending_lab.internal_probe
+      - name: Verify disposable PostgreSQL backup and restore
+        shell: bash
+        run: |
+          # This operates on GitHub's throwaway synthetic DB, never Railway's live volume.
+          docker compose --env-file .env.staging.ci -f docker-compose.staging.yml exec -T db sh -eu -c '
+            pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc --no-acl --no-owner -f /tmp/verity-test.dump
+            createdb -U "$POSTGRES_USER" verity_restore_test
+            pg_restore -U "$POSTGRES_USER" -d verity_restore_test --no-acl --no-owner --exit-on-error /tmp/verity-test.dump
+            result="$(psql -U "$POSTGRES_USER" -d verity_restore_test -Atqc "
+              SELECT (SELECT count(*) FROM schema_migrations) >= 9
+                AND to_regclass('\''public.pilot_sessions'\'') IS NOT NULL
+                AND (SELECT count(*) FROM pilot_accounts WHERE is_active=false) >= 1
+            ")"
+            test "$result" = t
+            echo "PASS: disposable PostgreSQL backup, restore and pilot account records"
+            rm -f /tmp/verity-test.dump
+          '
       - name: Inspect status
         if: always()
         run: |
