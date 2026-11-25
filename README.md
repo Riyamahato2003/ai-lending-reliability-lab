@@ -10,12 +10,7 @@ Implemented here: FastAPI/Pydantic service, real PostgreSQL migrations and synth
 
 **Hosted staging:** [Open Verity](https://verity-api-staging.up.railway.app)
 
-The hosted React interface includes a **credential-free, read-only walkthrough**
-of two simulated reliability failure scenarios. On the sign-in screen, choose
-**Explore the public reliability walkthrough**. It requires no account, sends
-no borrower inputs, and executes no lending API writes. This public explainer
-is not a substitute for the real authenticated workflow, and the scenarios
-are educational examples rather than live reliability measurements.
+The hosted React interface now **opens directly into a credential-free public workspace**.\nVisitors can create fictional applications, compare illustrative lenders, issue a\nsimulated approval, inject missing/duplicate confirmations, reconcile effects,\ninspect a local evidence timeline, ask deterministic explanation questions,\nand run guarded-versus-unsafe laboratory examples. **All guest state is\nin-memory in the visitor's browser tab**: no account, no shared database\nrecords, no protected lending API writes, and no live lender or AI service.\nReloading or pressing Reset clears the demo. This is a functional educational\nsandbox, not the database-backed workflow or a production lender.
 
 The interactive borrower and operator workspaces are separately provisioned,
 invitation-only synthetic pilots. There is **no public signup** or real lender
