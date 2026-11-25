@@ -20,6 +20,7 @@ services:
   migrate:
     build: .
     environment:
+      APP_MODE: local_demo
       MIGRATION_DATABASE_URL: postgresql://lending_migrator:${MIGRATION_DB_PASSWORD:-lending-migrator-demo}@db:5432/lending_lab
       DEMO_BORROWER_PASSWORD: ${DEMO_BORROWER_PASSWORD:-borrower-demo}
       DEMO_OPERATOR_PASSWORD: ${DEMO_OPERATOR_PASSWORD:-operator-demo}
@@ -64,5 +65,8 @@ services:
       migrate:
         condition: service_completed_successfully
     command: ["python", "-m", "lending_lab.worker"]
+    # The worker is a non-HTTP process; the Dockerfile API probe is irrelevant.
+    healthcheck:
+      disable: true
 volumes:
   postgres_data:
