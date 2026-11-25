@@ -1,3 +1,4 @@
+import GuestWorkspace from "./GuestWorkspace";
 import {
   lazy,
   Suspense,
@@ -419,7 +420,7 @@ function Login({ onLogin }: { onLogin: (s: Session, mode: LoginMode) => void }) 
   );
 }
 
-export default function App() {
+function PilotApp() {
   const [session, setSession] = useState<Session | null>(null),
     [loginMode, setLoginMode] = useState<LoginMode | null>(null),
     [page, setPage] = useState<Page>("overview"),
@@ -2188,4 +2189,14 @@ function Laboratory({
       </div>
     </>
   );
+}
+
+
+/**
+ * Public visitors enter the synthetic in-browser workspace immediately.
+ * The database-backed, invitation-only pilot remains at /pilot and preserves
+ * its existing server-side access controls and authenticated workflows.
+ */
+export default function App() {
+  return window.location.pathname === "/pilot" ? <PilotApp /> : <GuestWorkspace />;
 }
