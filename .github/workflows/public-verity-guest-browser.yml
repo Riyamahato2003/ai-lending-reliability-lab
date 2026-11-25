@@ -22,11 +22,8 @@ jobs:
       - name: Install Chromium browser
         run: npx playwright install --with-deps chromium
         working-directory: frontend
-      - name: Start isolated no-login frontend preview
-        run: (npm run dev -- --host 127.0.0.1 --port 4173 > /tmp/verity-preview.log 2>&1 &)
-        working-directory: frontend
-      - name: Exercise proposed guest workspace without touching live deployment
+      - name: Exercise live deployed no-login guest workspace over HTTPS
         env:
-          E2E_BASE_URL: http://127.0.0.1:4173
+          E2E_BASE_URL: https://verity-api-staging.up.railway.app
         run: npm run test:e2e -- --grep "public reliability explainer"
         working-directory: frontend
