@@ -206,7 +206,10 @@ def test_login_rate_limiter_has_separate_peer_budget(monkeypatch, db):
         with transaction() as conn:
             assert _allow_login_attempt(conn, unique_email(f"fanout-{attempt}"), origin)
     with transaction() as conn:
+        count_before = conn.execute("SELECT COUNT(*) AS count FROM pilot_login_limits").fetchone()["count"]
         assert not _allow_login_attempt(conn, unique_email("blocked"), origin)
+        count_after = conn.execute("SELECT COUNT(*) AS count FROM pilot_login_limits").fetchone()["count"]
+    assert count_after == count_before  # No new account key after peer cap
     with transaction() as conn:
         assert _allow_login_attempt(conn, unique_email("other-peer"), "198.51.100.25")
 
