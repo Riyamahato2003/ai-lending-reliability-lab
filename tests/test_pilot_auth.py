@@ -190,3 +190,50 @@ def test_production_settings_ignore_unreachable_demo_passwords():
         demo_operator_password="operator-demo",
     )
     s.validate_startup()
+
+
+def test_login_rate_limiter_has_separate_peer_budget(monkeypatch, db):
+    """One source cannot fan out unlimited guesses across distinct accounts."""
+    from lending_lab.db import transaction
+    from lending_lab.pilot_auth import _allow_login_attempt, IP_LOGIN_LIMIT
+
+    monkeypatch.setattr(
+        "lending_lab.pilot_auth.get_settings",
+        lambda: SimpleNamespace(session_signing_secret="test-peer-hmac-secret-32-bytes-minimum"),
+    )
+    origin = "198.51.100.24"
+    for attempt in range(IP_LOGIN_LIMIT):
+        with transaction() as conn:
+            assert _allow_login_attempt(conn, unique_email(f"fanout-{attempt}"), origin)
+    with transaction() as conn:
+        assert not _allow_login_attempt(conn, unique_email("blocked"), origin)
+    with transaction() as conn:
+        assert _allow_login_attempt(conn, unique_email("other-peer"), "198.51.100.25")
+
+
+def test_login_rejects_missing_peer_identity(client_in_pilot_mode, monkeypatch):
+    """An ingress with no verified peer must not silently bypass throttling."""
+    from fastapi import HTTPException
+    from lending_lab.pilot_auth import authenticate_pilot
+    with pytest.raises(HTTPException) as exc:
+        authenticate_pilot(unique_email("no-peer"), "not-a-password", source_ip=None)
+    assert exc.value.status_code == 503
+
+
+def test_forwarded_for_header_is_not_trusted_for_login_peer(client_in_pilot_mode, monkeypatch):
+    """Client-supplied forwarding headers must not bypass the per-peer limit."""
+    observed = []
+
+    def deny_login(username, password, source_ip=None):
+        observed.append(source_ip)
+        from fastapi import HTTPException
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    monkeypatch.setattr("lending_lab.api.authenticate_pilot", deny_login)
+    response = client_in_pilot_mode.post(
+        "/pilot/sessions",
+        json={"username": unique_email("spoof"), "password": "invalid"},
+        headers={"X-Forwarded-For": "8.8.8.8"},
+    )
+    assert response.status_code == 401
+    assert observed == ["testclient"]
