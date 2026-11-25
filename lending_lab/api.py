@@ -2,6 +2,7 @@ import logging
 import threading
 import asyncio
 import uuid
+from ipaddress import ip_address
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -167,12 +168,31 @@ def auth_capabilities():
     return {"login_mode": "demo" if get_settings().app_mode == "local_demo" else "pilot"}
 
 
+def _pilot_login_peer(request: Request) -> str | None:
+    """Select the login peer without trusting arbitrary forwarding headers.
+
+    Railway's HTTPS public edge overwrites X-Real-IP. Only enable that mode
+    when the service is reachable exclusively through the Railway HTTP edge
+    for external traffic; internal/private callers share that trust boundary.
+    The default is the ASGI-observed connection address.
+    """
+    if not getattr(get_settings(), "trust_railway_edge_client_ip", False):
+        return request.client.host if request.client else None
+    forwarded = request.headers.get("x-real-ip")
+    if not forwarded:
+        return None
+    try:
+        return str(ip_address(forwarded.strip()))
+    except ValueError:
+        return None
+
+
 @app.post("/pilot/sessions", response_model=SessionResponse)
 def create_pilot_login(body: SessionRequest, request: Request):
     if get_settings().app_mode != "production":
         raise HTTPException(status_code=404, detail="Pilot sign-in is unavailable")
     try:
-        token, claims = authenticate_pilot(body.username, body.password, source_ip=request.client.host if request.client else None)
+        token, claims = authenticate_pilot(body.username, body.password, source_ip=_pilot_login_peer(request))
     except HTTPException:
         append_security_event("authentication_failure", request.state.correlation_id,
                               details={"reason": "pilot_login_rejected"})
