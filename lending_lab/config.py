@@ -29,8 +29,6 @@ class Settings(BaseSettings):
         sample_secret = self.session_signing_secret == "local-only-change-before-use"
         sample_approval_key = self.approval_hmac_secret == "local-only-approval-hmac-key-change-before-use"
         sample_privacy_key = self.privacy_hmac_secret == "local-only-privacy-hmac-key-change-before-use"
-        sample_passwords = (self.demo_borrower_password == "borrower-demo" or
-                            self.demo_operator_password == "operator-demo")
         if self.app_mode == "local_demo":
             urls = (self.database_url, self.migration_database_url, self.lab_database_url)
             hosts = {urlparse(url).hostname for url in urls}
@@ -51,7 +49,9 @@ class Settings(BaseSettings):
             raise ValueError("GEMINI_TIMEOUT_SECONDS must be between 1 and 10")
         if not 1 <= self.assistant_max_question_chars <= 1000:
             raise ValueError("ASSISTANT_MAX_QUESTION_CHARS must be between 1 and 1000")
-        if sample_secret or sample_passwords:
+        # Fixed demo passwords cannot authenticate in production (6B/6C);
+        # requiring unused demo passwords to be configured would be misleading.
+        if sample_secret:
             raise ValueError("sample demo secrets are refused outside APP_MODE=local_demo")
         if sample_approval_key:
             raise ValueError("sample approval HMAC key is refused outside APP_MODE=local_demo")
