@@ -1,8 +1,6 @@
 name: public-verity-guest-browser
 on:
-  push:
-    branches:
-      - checkpoint-6g-public-pilot-hardening
+  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
