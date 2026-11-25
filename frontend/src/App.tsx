@@ -2198,5 +2198,5 @@ function Laboratory({
  * its existing server-side access controls and authenticated workflows.
  */
 export default function App() {
-  return window.location.pathname === "/pilot" ? <PilotApp /> : <GuestWorkspace />;
+  return new URLSearchParams(window.location.search).has("pilot") ? <PilotApp /> : <GuestWorkspace />;
 }
