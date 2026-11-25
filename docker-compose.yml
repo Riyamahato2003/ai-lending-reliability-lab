@@ -8,7 +8,7 @@ services:
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:-lending-runtime-demo}
       LAB_DB_PASSWORD: ${LAB_DB_PASSWORD:-lending-lab-demo}
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U lending_migrator -d lending_lab"]
       interval: 2s
@@ -46,7 +46,7 @@ services:
       DEMO_BORROWER_PASSWORD: ${DEMO_BORROWER_PASSWORD:-borrower-demo}
       DEMO_OPERATOR_PASSWORD: ${DEMO_OPERATOR_PASSWORD:-operator-demo}
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     depends_on:
       migrate:
         condition: service_completed_successfully
