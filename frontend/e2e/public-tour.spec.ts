@@ -17,7 +17,7 @@ test("public reliability explainer opens the complete no-login guest workspace",
   await page.getByRole("button", { name: /Create application/i }).click();
   await expect(page.getByRole("heading", { name: "Synthetic applications" })).toBeVisible();
   await page.getByRole("button", { name: /Create synthetic application/i }).click();
-  await expect(page.getByText(/Application created/i)).toBeVisible();
+  await expect(page.getByText("Application created. Compare the fictional lender offers below.")).toBeVisible();
   await page.getByRole("button", { name: /Compare three offers/i }).click();
   await expect(page.getByRole("button", { name: /Approve selected fictional offer/i })).toBeVisible();
   await page.getByRole("button", { name: /Approve selected fictional offer/i }).click();
