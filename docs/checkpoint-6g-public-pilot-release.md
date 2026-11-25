@@ -74,3 +74,26 @@ Verity is an engineering portfolio demonstration with illustrative INR
 figures, synthetic people and simulated lenders. Its results are *not* loan
 offers, financial advice, approval, external-service exactly-once guarantees,
 or evidence of regulatory certification.
+
+
+## Deployment record — 26 November 2026 (India)
+
+- GitHub PR: https://github.com/Riyamahato2003/ai-lending-reliability-lab/pull/7
+- Exact tested + deployed source SHA: `8e981672d036535cec98e176bb02c42a99cba6ca`.
+- GitHub Actions at that SHA: backend CI, container smoke, and isolated
+  private-staging workflows all completed successfully.
+- Railway API deployment ID: `071215db-db08-4e45-be25-27b817d33324`,
+  status `SUCCESS`; `verity-api` remained in existing staging environment
+  with Postgres/worker/migrations unchanged.
+- A Railway-generated HTTPS hostname was attached:
+  `https://verity-api-staging.up.railway.app` (service domain ID
+  `dfc8dc6e-b7f7-413e-bc48-3f8d338aa8e7`, target container port 8000).
+- This hostname being registered **does not prove outside-internet readiness**:
+  external DNS/browser checks from the assistant's execution environment were
+  inconclusive because that environment cannot resolve even ordinary public
+  DNS. Railway's domain status returned a known hostname but no confirmed
+  certificate/verification status at the time of inspection.
+- Pilot self-signup remains disabled and the app must remain synthetic-only.
+  Independently verify public TLS, ingress header integrity, abuse limits,
+  browser sign-in and borrower/operator workflows before inviting testers.
+- No extra Railway paid schedules or recurring jobs were created.
