@@ -76,7 +76,12 @@ def get_principal(request: Request, authorization: str | None = Header(default=N
                               details={"reason": "missing_bearer_session"})
         raise HTTPException(status_code=401, detail="Bearer session required")
     try:
-        return verify_session(authorization.split(" ", 1)[1])
+        token = authorization.split(" ", 1)[1]
+        if get_settings().app_mode == "local_demo":
+            return verify_session(token)
+        # Import lazily: pilot_auth reuses Principal without a module-level cycle.
+        from lending_lab.pilot_auth import verify_pilot_session
+        return verify_pilot_session(token)
     except HTTPException:
         append_security_event("authentication_failure", request.state.correlation_id,
                               details={"reason": "invalid_expired_or_revoked_session"})

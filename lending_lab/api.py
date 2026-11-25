@@ -11,6 +11,7 @@ from psycopg.types.json import Jsonb
 from lending_lab.auth import Principal, get_principal, require_borrower, require_operator, issue_session
 from lending_lab.credentials import verify_demo_password
 from lending_lab.config import get_settings
+from lending_lab.pilot_auth import authenticate_pilot, revoke_pilot_session
 from lending_lab.db import append_audit_event, append_security_event, connect, transaction, run_transaction_with_retry
 from lending_lab.approvals import create_approval, consume_approval
 from lending_lab.dispatch import list_reconciliation_conflicts, record_operator_resolution
@@ -58,7 +59,7 @@ class LabRequestSizeLimit:
     async def __call__(self, scope, receive, send):
         path = scope.get("path", "")
         bounded_paths = {"/operator/lab/runs", "/operator/lab/compare",
-                         "/assistant/consent"}
+                         "/assistant/consent", "/pilot/sessions", "/demo/sessions"}
         is_explain = path.startswith("/workflows/") and path.endswith("/assistant/explain")
         if scope.get("type") != "http" or scope.get("method") != "POST" or \
                 (path not in bounded_paths and not is_explain):
@@ -137,6 +138,37 @@ def health():
         raise HTTPException(status_code=503, detail="Database unavailable")
 
 
+@app.get("/auth/capabilities")
+def auth_capabilities():
+    """Public capability discovery without exposing credentials or secrets."""
+    return {"login_mode": "demo" if get_settings().app_mode == "local_demo" else "pilot"}
+
+
+@app.post("/pilot/sessions", response_model=SessionResponse)
+def create_pilot_login(body: SessionRequest, request: Request):
+    if get_settings().app_mode != "production":
+        raise HTTPException(status_code=404, detail="Pilot sign-in is unavailable")
+    try:
+        token, claims = authenticate_pilot(body.username, body.password)
+    except HTTPException:
+        append_security_event("authentication_failure", request.state.correlation_id,
+                              details={"reason": "pilot_login_rejected"})
+        raise
+    return SessionResponse(
+        access_token=token,
+        expires_at=datetime.fromtimestamp(claims["exp"], timezone.utc),
+        role=Role(claims["role"]), borrower_id=claims["borrower_id"]
+    )
+
+
+@app.post("/pilot/sessions/logout", status_code=204)
+def logout_pilot_session(principal: Principal = Depends(get_principal)):
+    if get_settings().app_mode != "production":
+        raise HTTPException(status_code=404, detail="Pilot logout is unavailable")
+    revoke_pilot_session(principal)
+    return Response(status_code=204)
+
+
 @app.post("/demo/sessions", response_model=SessionResponse)
 def create_session(body: SessionRequest, request: Request):
     # This endpoint is exclusively for synthetic, local developer identities.
@@ -159,6 +191,8 @@ def create_session(body: SessionRequest, request: Request):
 
 @app.post("/demo/sessions/logout", status_code=204)
 def logout_session(principal: Principal = Depends(get_principal)):
+    if get_settings().app_mode != "local_demo":
+        raise HTTPException(status_code=404, detail="Demo logout is unavailable")
     with transaction() as conn:
         conn.execute("UPDATE demo_sessions SET revoked_at=now() WHERE session_id=%s AND username=%s AND revoked_at IS NULL",
                      (principal.session_id, principal.username))
