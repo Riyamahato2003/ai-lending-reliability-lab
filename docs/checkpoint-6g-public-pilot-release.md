@@ -97,3 +97,30 @@ or evidence of regulatory certification.
   Independently verify public TLS, ingress header integrity, abuse limits,
   browser sign-in and borrower/operator workflows before inviting testers.
 - No extra Railway paid schedules or recurring jobs were created.
+
+
+## External HTTP evidence (same public hostname)
+
+Railway's public HTTP request stream subsequently recorded the following
+responses, without needing to log client IPs:
+
+| Method | Path | Status |
+| --- | --- | --- |
+| GET | `/` | `200` |
+| GET | `/assets/index-CTRwSZU1.css` | `200` |
+| GET | `/assets/index-BuBYqIIw.js` | `200` |
+| GET | `/auth/capabilities` | `200` |
+| GET | `/favicon.svg` | `200` |
+| POST | `/pilot/sessions` | `401` |
+
+A separate public HTTPS POST connectivity check to `/ready` returned
+`405 Method Not Allowed` (expected for its GET-only route). These
+observations support that the public hostname routes to the running
+application and serves its frontend. They are **not** a complete browser,
+login, TLS-certificate-chain, security or financial-workflow acceptance test.
+The `401` does not establish a successful pilot login.
+
+Remaining next step: securely provision and privately deliver two synthetic
+pilot identities, then perform actual browser-based borrower and operator
+journeys, permission boundary checks, mobile testing and ingress rate-limiting
+validation. Never use real borrower data.
