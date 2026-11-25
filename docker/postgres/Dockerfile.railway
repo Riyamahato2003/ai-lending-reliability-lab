@@ -1,0 +1,5 @@
+# Private PostgreSQL image for Verity's existing three-role database model.
+# The init script runs ONLY when PGDATA is empty. Backups and restore are
+# mandatory before using this image on a persistent staging volume.
+FROM postgres:16-alpine
+COPY --chmod=0755 docker/postgres/init/10-roles.sh /docker-entrypoint-initdb.d/10-roles.sh
