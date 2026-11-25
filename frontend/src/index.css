@@ -2092,3 +2092,37 @@ select:focus {
     gap: 6px;
   }
 }
+
+
+/* Public, credential-free explainer. This never talks to the lending APIs. */
+.public-tour { min-height: 100vh; background: #f7f8fb; }
+.public-tour-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 22px clamp(20px,5vw,80px); background: #fff; border-bottom: 1px solid #e8ecf1; }
+.public-tour-content { max-width: 1150px; margin: auto; padding: 48px 24px 64px; }
+.public-tour-content > h1 { max-width: 800px; font-size: clamp(30px,4vw,52px); line-height: 1.15; margin: 18px 0; color: #172a41; }
+.public-tour-content > p { max-width: 850px; line-height: 1.7; }
+.public-tour-selector { display: flex; gap: 10px; flex-wrap: wrap; margin: 30px 0; }
+.public-tour-selector button { border: 1px solid #cbd5e1; background: white; color: #334155; padding: 12px 18px; border-radius: 12px; font-weight: 700; }
+.public-tour-selector button.selected { background: #172a41; border-color: #172a41; color: white; }
+.public-tour-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.public-tour-panel { padding: 26px; background: white; border: 1px solid #e2e8f0; border-radius: 18px; }
+.public-tour-panel:first-child { grid-row: span 2; }
+.public-tour-panel h2 { font-size: 21px; line-height: 1.35; margin: 16px 0 12px; }
+.public-tour-panel p { color: #475569; line-height: 1.65; }
+.public-tour-label { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; display: flex; align-items: center; gap: 8px; }
+.public-tour-safe .public-tour-label { color: #166534; }
+.public-tour-unsafe .public-tour-label { color: #9a3412; }
+.public-tour-sequence { display: grid; gap: 12px; margin-top: 32px; }
+.public-tour-sequence span { border-left: 3px solid #94a3b8; padding: 12px 16px; background: #f8fafc; border-radius: 4px 10px 10px 4px; }
+.public-tour-result { background: #f8fafc; border-radius: 10px; padding: 14px; font-size: 14px; line-height: 1.6; font-weight: 700; }
+.public-tour-footer { display: flex; justify-content: space-between; align-items: center; gap: 24px; margin-top: 28px; padding: 25px; border-radius: 18px; background: #e9eff7; }
+.public-tour-footer p { margin: 8px 0 0; color: #475569; line-height: 1.6; max-width: 650px; }
+.public-tour-disclaimer { font-size: 13px; color: #64748b; margin-top: 22px; }
+.public-tour-link { display: inline-flex; align-items: center; gap: 8px; width: 100%; justify-content: center; padding: 13px 14px; background: #eff6ff; border: 1px solid #c7dcff; color: #174074; border-radius: 12px; margin: 12px 0 22px; font-weight: 700; }
+.public-tour-link:hover { background: #e0edff; }
+@media (max-width: 720px) {
+  .public-tour-content { padding: 32px 16px 48px; }
+  .public-tour-grid { grid-template-columns: 1fr; }
+  .public-tour-panel:first-child { grid-row: auto; }
+  .public-tour-footer { align-items: stretch; flex-direction: column; }
+  .public-tour-header { padding: 16px; }
+}
