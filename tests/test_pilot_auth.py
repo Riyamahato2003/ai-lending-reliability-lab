@@ -176,3 +176,17 @@ def test_provisioning_validates_email_and_role():
         normalized_username("no-at-sign")
     with pytest.raises(ValueError):
         normalized_username("bad\\example.com")
+
+
+def test_production_settings_ignore_unreachable_demo_passwords():
+    from lending_lab.config import Settings
+    s = Settings(
+        _env_file=None,
+        app_mode="production",
+        session_signing_secret="s" * 48,
+        approval_hmac_secret="a" * 48,
+        privacy_hmac_secret="p" * 48,
+        demo_borrower_password="borrower-demo",
+        demo_operator_password="operator-demo",
+    )
+    s.validate_startup()
